@@ -1,0 +1,73 @@
+<!doctype html>
+<html>
+<head>
+<meta charset="utf-8" />
+<title>POS Hardware Bridge</title>
+<link rel="stylesheet" href="styles.css" />
+</head>
+<body>
+  <h1>POS Hardware Bridge</h1>
+
+  <section>
+    <h2>Local API</h2>
+    <p class="muted">Any POS web app on this machine calls this address to print receipts and charge the terminal.</p>
+    <label>Port</label>
+    <input id="port" type="number" min="1024" max="65535" />
+    <label>Auth token</label>
+    <div class="row">
+      <input id="authToken" type="text" readonly />
+      <button id="regenToken">Regenerate</button>
+      <button id="copyToken">Copy</button>
+    </div>
+  </section>
+
+  <section>
+    <h2>Receipt printer</h2>
+    <label><input id="printerEnabled" type="checkbox" /> Enabled</label>
+    <label>Connection</label>
+    <select id="printerConnectionType">
+      <option value="usb">USB (installed OS printer)</option>
+      <option value="network">Network (IP printer)</option>
+    </select>
+    <div id="printerUsbFields">
+      <label>System printer</label>
+      <select id="systemPrinterName"></select>
+      <button id="refreshPrinters">Refresh</button>
+    </div>
+    <div id="printerNetworkFields">
+      <label>Host</label>
+      <input id="printerHost" type="text" placeholder="192.168.1.100" />
+      <label>Port</label>
+      <input id="printerPort" type="number" placeholder="9100" />
+    </div>
+    <label>Paper width (chars)</label>
+    <input id="paperWidthChars" type="number" />
+    <div class="row">
+      <button id="saveSettings">Save settings</button>
+      <button id="testPrint">Test print</button>
+    </div>
+    <p id="printResult" class="muted"></p>
+  </section>
+
+  <section>
+    <h2>Payment terminal</h2>
+    <label><input id="terminalEnabled" type="checkbox" /> Enabled</label>
+    <label>Serial port</label>
+    <div class="row">
+      <select id="serialPath"></select>
+      <button id="refreshPorts">Refresh</button>
+    </div>
+    <label>Baud rate</label>
+    <input id="baudRate" type="number" />
+    <label>Response timeout (ms)</label>
+    <input id="responseTimeoutMs" type="number" />
+    <div class="row">
+      <button id="saveTerminalSettings">Save settings</button>
+      <button id="testCharge">Test $1.00 charge</button>
+    </div>
+    <p id="terminalResult" class="muted"></p>
+  </section>
+
+  <script src="settings.js"></script>
+</body>
+</html>
