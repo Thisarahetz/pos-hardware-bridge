@@ -16,7 +16,7 @@ export function applyLaunchAtLogin(): void {
   try {
     app.setLoginItemSettings({
       openAtLogin: enabled,
-      openAsHidden: true,
+      // Windows passes this flag at sign-in; macOS reports it via wasOpenedAtLogin.
       args: [HIDDEN_ARG],
     });
     log.info(`launch at login = ${enabled}`);
