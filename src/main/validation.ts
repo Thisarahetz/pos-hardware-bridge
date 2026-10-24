@@ -39,6 +39,21 @@ const checkReceipt: Check = (body) => {
   requireMoney(body, 'subtotalAmount', problems);
   requireMoney(body, 'taxAmount', problems);
   requireMoney(body, 'totalAmount', problems);
+  if (body.qrCode !== undefined) {
+    const qr = body.qrCode;
+    const data = typeof qr === 'string' ? qr : isObject(qr) ? qr.data : undefined;
+    if (!isText(data)) {
+      problems.push('"qrCode" must be a non-empty string, or an object like { "data": "https://…", "label": "Scan to pay" }');
+    } else if ((data as string).length > 1000) {
+      problems.push('"qrCode" content is too long to scan reliably (max 1000 characters; use a short link)');
+    }
+    if (isObject(qr)) {
+      if (qr.label !== undefined && typeof qr.label !== 'string') problems.push('"qrCode.label" must be a string when given');
+      if (qr.size !== undefined && !['small', 'medium', 'large'].includes(qr.size as string)) {
+        problems.push('"qrCode.size" must be "small", "medium" or "large"');
+      }
+    }
+  }
   for (const optional of ['locationName', 'footer'] as const) {
     if (body[optional] !== undefined && typeof body[optional] !== 'string') {
       problems.push(`"${optional}" must be a string when given`);

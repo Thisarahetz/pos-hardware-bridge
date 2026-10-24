@@ -29,6 +29,9 @@ export interface PrinterProfile {
   cutter: ReceiptCutter;
   /** Receipt printers: blank lines fed after the receipt, before cutting/tearing. */
   feedLines: number;
+  /** Receipt printers: print QR codes as an image (works on every printer) or
+   * with the printer's own QR command (sharper/faster, not on all models). */
+  qrMode: 'image' | 'native';
   /** Document printers: default paper size. */
   paperSize: DocumentPaperSize;
 }
@@ -90,7 +93,18 @@ export interface ReceiptModel {
   totalAmount: number;
   currency: string;
   paymentMethod: string;
+  /** Optional QR code printed above the footer: a payment link, e-invoice,
+   * order tracking or feedback page. A plain string is the QR content. */
+  qrCode?: string | ReceiptQrCode;
   footer?: string;
+}
+
+export interface ReceiptQrCode {
+  /** What the QR code contains, usually a URL. */
+  data: string;
+  /** Short line printed under the code, e.g. "Scan to leave a review". */
+  label?: string;
+  size?: 'small' | 'medium' | 'large';
 }
 
 export type TerminalTransactionStatus =

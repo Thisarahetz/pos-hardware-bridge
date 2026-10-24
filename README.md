@@ -58,6 +58,8 @@ not stop it. To turn auto-start off: tray icon → untick **Start with computer*
      *Network printer by IP address* (port is usually `9100`).
 2. Click **Test print** on the printer. The number line at the bottom should reach the
    right edge of the paper. If not, open **Settings** and change **Paper size** (58 mm / 80 mm).
+   - **QR codes:** the test page includes a QR code. Scan it with a phone. If it's
+     missing or garbled, set **QR codes** to **Print as image**.
    - **Paper cutter:** if the printer cuts the paper by itself, choose **Full cut** or
      **Partial cut** (partial leaves a small tab so the receipt doesn't fall). If the cashier
      tears receipts off by hand, choose **No cutter**. The bridge then feeds extra paper so no
@@ -247,10 +249,25 @@ are written for cashiers, so you can show them as they are.
 | `totalAmount` | integer | ✔ | Minor units |
 | `currency` | string | ✔ | 3-letter code: `USD`, `LKR`, `EUR`… |
 | `paymentMethod` | string | ✔ | e.g. `Cash`, `Card ****4242` |
+| `qrCode` | string or object | | QR code printed above the footer (see below) |
 | `footer` | string | | Printed centred at the bottom |
 
 The bridge prints the totals you send and does no maths of its own, so
 calculate them in the POS.
+
+**QR codes**: for a payment link, e-invoice, order tracking or a feedback page.
+Send just the content, or an object with a caption and size:
+
+```json
+"qrCode": "https://myshop.example/r/SALE-1042"
+```
+```json
+"qrCode": { "data": "https://myshop.example/r/SALE-1042", "label": "Scan for your e-receipt", "size": "medium" }
+```
+
+`size` is `small`, `medium` (default) or `large`. Keep the content short
+(a short link scans best on small receipts); the maximum is 1000 characters.
+QR codes print on thermal and A4 printers alike.
 
 Sending a receipt to an A4 printer (`"printer": "invoice"`) prints the same
 data laid out as a page with an item table and totals. That's a quick way
@@ -294,6 +311,9 @@ await fetch(`${BRIDGE_URL}/print/document`, {
   logos as `data:` image URLs so nothing has to download.
 - **JavaScript is turned off.** Render the final HTML in your POS (template
   engine, React `renderToString`, …) before sending it.
+- For a QR code on your own invoice HTML, generate it in the POS (for
+  example with the `qrcode` npm package) and embed it as an inline `<svg>`
+  or a `data:` image.
 - Set margins with `@page { margin: 15mm; }`. Use `page-break-inside: avoid`
   on table rows so long invoices break cleanly across pages.
 - Test with **Test print** in the bridge first, then with a real invoice.
@@ -431,6 +451,8 @@ or PWA build.
 | Text cut off or too narrow | Change **Paper size**, then print a test page. |
 | Receipt not cut, or the last lines stay inside the printer | The printer has no cutter: in its **Settings** set **Paper cutter** to **No cutter**, and choose **More** under *Extra paper at the end*. |
 | Cut too close to the text, or too much blank paper | Change **Extra paper at the end**. |
+| QR code missing, or random characters where it should be | In the printer's **Settings**, set **QR codes** to **Print as image**. That works on every printer. |
+| QR code won't scan | Use a shorter link, or send `"size": "large"`. |
 | POS says *unauthorized* | Copy the access token from settings into the POS again. |
 | *API stopped – port in use* | Another program uses port 9191. The bridge keeps retrying. Close that program, or change the port under Developer details and update the POS. |
 | Need logs for support | Tray icon → **Open log folder** → send `bridge.log`. |

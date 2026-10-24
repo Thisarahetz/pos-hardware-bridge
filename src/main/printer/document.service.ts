@@ -5,6 +5,7 @@ import fs from 'node:fs/promises';
 import path from 'node:path';
 import type { DocumentPaperSize, PrinterProfile, ReceiptModel } from '../types';
 import { ensureQueueReady } from './availability';
+import { normalizeQr, qrSvg } from './qr';
 
 export interface DocumentOptions {
   docName: string;
@@ -144,10 +145,17 @@ const PAGE_STYLE = `
   .totals td { border: 0; padding: 1.5mm 2mm; }
   .grand td { font-size: 13pt; font-weight: 700; border-top: 2px solid #111; }
   .foot { margin-top: 10mm; text-align: center; }
+  .qr { margin-top: 8mm; text-align: center; }
+  .qr svg { display: block; margin: 0 auto 2mm; }
+  .qr.small svg { width: 25mm; } .qr.medium svg { width: 32mm; } .qr.large svg { width: 42mm; }
 `;
 
 /** The receipt laid out as a page, for when a receipt is sent to an A4/A5 printer. */
-export function receiptHtml(r: ReceiptModel): string {
+export async function receiptHtml(r: ReceiptModel): Promise<string> {
+  const qr = r.qrCode ? normalizeQr(r.qrCode) : null;
+  const qrBlock = qr
+    ? `<div class="qr ${qr.size}">${await qrSvg(qr.data)}${qr.label ? `<div class="muted">${escapeHtml(qr.label)}</div>` : ''}</div>`
+    : '';
   const rows = r.lines
     .map(
       (l) => `<tr>
@@ -174,12 +182,13 @@ export function receiptHtml(r: ReceiptModel): string {
     <tr class="grand"><td>Total</td><td class="num">${money(r.totalAmount, r.currency)}</td></tr>
     <tr><td class="muted">Paid by</td><td class="num muted">${escapeHtml(r.paymentMethod)}</td></tr>
   </table>
+  ${qrBlock}
   ${r.footer ? `<p class="foot">${escapeHtml(r.footer)}</p>` : ''}
 </body></html>`;
 }
 
 /** Test page for A4/A5 printers: a sample invoice showing margins and layout. */
-export function testPageHtml(profile: PrinterProfile): string {
+export function testPageHtml(profile: PrinterProfile): Promise<string> {
   return receiptHtml({
     businessName: 'POS Hardware Bridge – test page',
     locationName: `Printer: ${profile.name} · API name: ${profile.id} · Paper: ${profile.paperSize}`,
@@ -194,6 +203,7 @@ export function testPageHtml(profile: PrinterProfile): string {
     totalAmount: 3839,
     currency: 'USD',
     paymentMethod: 'Test',
+    qrCode: { data: 'POS Hardware Bridge: QR test OK', label: 'Scan me to test QR codes' },
     footer: 'If this page looks right, A4 invoices from your POS will print correctly.',
   });
 }

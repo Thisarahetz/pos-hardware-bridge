@@ -83,7 +83,7 @@ export function regenerateAuthToken(): string {
 // ---------- printers ----------
 
 export function newProfileDefaults(kind: PrinterKind): Omit<PrinterProfile, 'id' | 'name' | 'connection'> {
-  return { kind, language: 'epson', paperWidthChars: 42, cutter: 'full', feedLines: 3, paperSize: 'A4' };
+  return { kind, language: 'epson', paperWidthChars: 42, cutter: 'full', feedLines: 3, qrMode: 'image', paperSize: 'A4' };
 }
 
 function slug(text: string): string {

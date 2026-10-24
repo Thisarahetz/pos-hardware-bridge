@@ -149,6 +149,11 @@ function printerSettings(p, isDefault) {
         ),
       ),
       option(
+        'QR codes',
+        'Print as image works on every printer. Built-in is sharper and faster, but only if your printer supports it. Use Test print to check.',
+        segmented([['image', 'Print as image'], ['native', 'Built-in']], p.qrMode ?? 'image', (v) => changePrinter(p.id, { qrMode: v }, 'QR setting saved')),
+      ),
+      option(
         'Extra paper at the end',
         p.cutter === 'none' ? 'Feeds the receipt past the tear bar so no text is torn off.' : 'Blank space after the last line, before the cut.',
         segmented([['1', 'Less'], ['3', 'Normal'], ['4', 'More'], ['6', 'Most']], String(p.feedLines ?? 3), (v) => changePrinter(p.id, { feedLines: Number(v) }, 'Saved')),
@@ -420,6 +425,7 @@ await bridge('/print/receipt', {
   totalAmount: 1265,
   currency: 'USD',
   paymentMethod: 'Cash',
+  qrCode: { data: 'https://myshop.example/r/SALE-1042', label: 'Scan for your e-receipt' },
   footer: 'Thank you, come again!',
 });
 

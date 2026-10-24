@@ -4,6 +4,7 @@ import type { PrinterProfile, ReceiptModel } from '../types';
 import { getBackend } from './backend';
 import { ensureQueueReady } from './availability';
 import { money, printHtml, printPdf, receiptHtml, testPageHtml } from './document.service';
+import { nativeCellSize, normalizeQr, qrPngForReceipt } from './qr';
 import type { DocumentRequest } from '../validation';
 
 type Driver = InstanceType<typeof ThermalPrinter>;
@@ -31,7 +32,20 @@ function finishReceipt(driver: Driver, profile: PrinterProfile, cut = true): voi
   else driver.cut({ verticalTabAmount: 0 });
 }
 
-function renderReceipt(driver: Driver, receipt: ReceiptModel): void {
+/** Centered QR code with an optional caption. */
+async function printQr(driver: Driver, profile: PrinterProfile, qr: ReturnType<typeof normalizeQr>): Promise<void> {
+  driver.newLine();
+  driver.alignCenter();
+  if (profile.qrMode === 'native') {
+    driver.printQR(qr.data, { cellSize: nativeCellSize(qr, profile.paperWidthChars), correction: 'M', model: 2 });
+  } else {
+    await driver.printImageBuffer(await qrPngForReceipt(qr, profile.paperWidthChars));
+  }
+  if (qr.label) driver.println(qr.label);
+  driver.alignLeft();
+}
+
+async function renderReceipt(driver: Driver, profile: PrinterProfile, receipt: ReceiptModel): Promise<void> {
   driver.alignCenter();
   driver.bold(true);
   driver.println(receipt.businessName);
@@ -68,6 +82,8 @@ function renderReceipt(driver: Driver, receipt: ReceiptModel): void {
   ]);
   driver.bold(false);
   driver.println(`Paid by ${receipt.paymentMethod}`);
+
+  if (receipt.qrCode) await printQr(driver, profile, normalizeQr(receipt.qrCode));
 
   if (receipt.footer) {
     driver.drawLine();
@@ -116,10 +132,10 @@ export async function printReceipt(receipt: ReceiptModel, printerId?: string, cu
   const profile = resolvePrinter('receipt', printerId);
   try {
     if (profile.kind === 'document') {
-      await printHtml(profile, receiptHtml(receipt), { docName: `Receipt ${receipt.saleReference}` });
+      await printHtml(profile, await receiptHtml(receipt), { docName: `Receipt ${receipt.saleReference}` });
     } else {
       const driver = buildDriver(profile);
-      renderReceipt(driver, receipt);
+      await renderReceipt(driver, profile, receipt);
       finishReceipt(driver, profile, cut);
       await sendThermal(driver, profile, `Receipt ${receipt.saleReference}`);
     }
@@ -133,7 +149,7 @@ export async function printTestPage(printerId?: string): Promise<PrinterProfile>
   const profile = resolvePrinter('receipt', printerId);
   try {
     if (profile.kind === 'document') {
-      await printHtml(profile, testPageHtml(profile), { docName: 'Test page' });
+      await printHtml(profile, await testPageHtml(profile), { docName: 'Test page' });
       return profile;
     }
     const driver = buildDriver(profile);
@@ -154,6 +170,7 @@ export async function printTestPage(printerId?: string): Promise<PrinterProfile>
     driver.println(new Date().toLocaleString());
     // Ruler: the last digit should sit exactly at the right edge of the paper.
     driver.println('1234567890'.repeat(Math.ceil(profile.paperWidthChars / 10)).slice(0, profile.paperWidthChars));
+    await printQr(driver, profile, { data: 'POS Hardware Bridge: QR test OK', label: 'Scan me to test QR codes', size: 'medium' });
     driver.newLine();
     driver.println(
       profile.cutter === 'none'
