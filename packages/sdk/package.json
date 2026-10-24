@@ -1,0 +1,35 @@
+{
+  "name": "pos-hardware-bridge",
+  "version": "1.0.0",
+  "description": "Print sharp receipts from any POS: build ReceiptLine receipts and send them to POS Hardware Bridge (thermal, kitchen and A4 printers).",
+  "license": "MIT",
+  "type": "module",
+  "main": "./dist/cjs/index.js",
+  "module": "./dist/esm/index.js",
+  "types": "./dist/esm/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/esm/index.d.ts",
+      "import": "./dist/esm/index.js",
+      "require": "./dist/cjs/index.js"
+    }
+  },
+  "files": ["dist", "README.md", "LICENSE"],
+  "sideEffects": false,
+  "engines": { "node": ">=18" },
+  "scripts": {
+    "build": "node scripts/build.mjs",
+    "test": "npm run build && node --test test/*.test.mjs",
+    "prepublishOnly": "npm test"
+  },
+  "keywords": ["pos", "receipt", "thermal printer", "escpos", "star", "receiptline", "electron", "print"],
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/Thisarahetz/pos-hardware-bridge.git",
+    "directory": "packages/sdk"
+  },
+  "homepage": "https://github.com/Thisarahetz/pos-hardware-bridge/tree/master/packages/sdk#readme",
+  "devDependencies": {
+    "typescript": "^5.9.3"
+  }
+}
