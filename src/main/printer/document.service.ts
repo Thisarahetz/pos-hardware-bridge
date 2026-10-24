@@ -5,6 +5,7 @@ import fs from 'node:fs/promises';
 import path from 'node:path';
 import type { DocumentPaperSize, PrinterProfile, ReceiptModel } from '../types';
 import { ensureQueueReady } from './availability';
+import { printSandbox } from './print-sandbox';
 import { normalizeQr, qrSvg } from './qr';
 
 export interface DocumentOptions {
@@ -46,7 +47,7 @@ async function withPage<T>(html: string, use: (win: BrowserWindow) => Promise<T>
       show: false,
       width: 900,
       height: 1200,
-      webPreferences: { javascript: false, sandbox: true, contextIsolation: true, nodeIntegration: false },
+      webPreferences: { javascript: false, sandbox: true, contextIsolation: true, nodeIntegration: false, ...printSandbox() },
     });
     win.webContents.setWindowOpenHandler(() => ({ action: 'deny' }));
     win.webContents.on('will-navigate', (event) => event.preventDefault());

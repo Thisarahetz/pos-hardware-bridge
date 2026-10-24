@@ -1,5 +1,7 @@
 import { app, clipboard, ipcMain, shell } from 'electron';
 import { log } from './logger';
+import os from 'node:os';
+import { disconnectStation, getCloudState, pairStation } from './cloud/cloud-client';
 import {
   getConfig,
   makeDefaultPrinter,
@@ -105,6 +107,13 @@ export function registerIpcHandlers(): void {
   );
 
   ipcMain.handle('test:print', (_evt, id?: string) => attempt(() => printTestPage(id)));
+
+  ipcMain.handle('cloud:get', () => getCloudState());
+  ipcMain.handle('cloud:pair', (_evt, serverUrl: string, code: string, name: string) =>
+    attempt(() => pairStation(String(serverUrl ?? ''), String(code ?? ''), String(name ?? ''))),
+  );
+  ipcMain.handle('cloud:disconnect', () => attempt(disconnectStation));
+  ipcMain.handle('cloud:default-name', () => os.hostname().replace(/\.local$/, ''));
 
   ipcMain.handle('test:terminal-charge', () =>
     attempt(() => charge({ amountMinorUnits: 100, currency: 'USD', reference: `test-${Date.now()}` })),

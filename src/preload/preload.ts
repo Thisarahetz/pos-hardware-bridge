@@ -2,6 +2,7 @@ import { contextBridge, ipcRenderer, type IpcRendererEvent } from 'electron';
 import type { BridgeConfig, BridgeStatus, PrinterKind, PrinterProfile } from '../main/types';
 import type { ConfigPatch } from '../main/config-store';
 import type { DiscoveredPrinter } from '../main/printer/discovery';
+import type { CloudState } from '../main/cloud/cloud-client';
 
 type Result<T = unknown> = { ok: true; value?: T } | { ok: false; error: string };
 
@@ -39,5 +40,14 @@ contextBridge.exposeInMainWorld('bridge', {
     ipcRenderer.invoke('devices:list-serial-ports', includeSystemPorts),
 
   testPrint: (id?: string): Promise<Result> => ipcRenderer.invoke('test:print', id),
+
+  getCloud: (): Promise<CloudState> => ipcRenderer.invoke('cloud:get'),
+  onCloud: (listener: (state: CloudState) => void): void => {
+    ipcRenderer.on('cloud:state', (_evt: IpcRendererEvent, s: CloudState) => listener(s));
+  },
+  pairCloud: (serverUrl: string, code: string, name: string): Promise<Result<CloudState>> =>
+    ipcRenderer.invoke('cloud:pair', serverUrl, code, name),
+  disconnectCloud: (): Promise<Result<CloudState>> => ipcRenderer.invoke('cloud:disconnect'),
+  defaultStationName: (): Promise<string> => ipcRenderer.invoke('cloud:default-name'),
   testTerminalCharge: (): Promise<Result> => ipcRenderer.invoke('test:terminal-charge'),
 });

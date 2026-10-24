@@ -142,6 +142,29 @@ export const validatePrinterChoice = (body: unknown) =>
     checkPrinterName(b, problems);
     return problems;
   });
+export interface PageRequest {
+  html: string;
+  printer?: string;
+  format?: '80mm' | '58mm' | 'a4' | 'a5';
+  copies?: number;
+  title?: string;
+}
+
+export const validatePage = (body: unknown) =>
+  validate<PageRequest>(body, (b) => {
+    const problems: string[] = [];
+    checkPrinterName(b, problems);
+    if (!isText(b.html)) problems.push('"html" must be the page to print, as a complete HTML document');
+    if (b.format !== undefined && !['80mm', '58mm', 'a4', 'a5'].includes(b.format as string)) {
+      problems.push('"format" must be one of 80mm, 58mm, a4, a5');
+    }
+    if (b.copies !== undefined && !(Number.isInteger(b.copies) && (b.copies as number) >= 1 && (b.copies as number) <= 5)) {
+      problems.push('"copies" must be a whole number from 1 to 5');
+    }
+    if (b.title !== undefined && typeof b.title !== 'string') problems.push('"title" must be a string when given');
+    return problems;
+  });
+
 export const validateCharge = (body: unknown) => validate<TerminalChargeRequest>(body, checkCharge);
 export const validateReference = (body: unknown) =>
   validate<{ reference: string }>(body, (b) => (isText(b.reference) ? [] : ['"reference" is required']));

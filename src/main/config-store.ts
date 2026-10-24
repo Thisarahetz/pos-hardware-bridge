@@ -50,10 +50,17 @@ function migrateLegacyPrinter(): void {
 migrateLegacyPrinter();
 
 export function getConfig(): BridgeConfig {
-  const { printer: _legacy, ...config } = store.store;
+  // Pick the known sections only: the store also holds the cloud link (with
+  // the station token), which must never reach the settings window.
+  const config = store.store;
   // Fill in settings added after a printer was saved (e.g. the cutter option).
   const printers = (config.printers ?? []).map((p) => ({ ...newProfileDefaults(p.kind), ...p }));
-  return { ...config, app: { ...defaults.app, ...config.app }, printers };
+  return {
+    app: { ...defaults.app, ...config.app },
+    server: config.server,
+    printers,
+    terminal: config.terminal,
+  };
 }
 
 export type ConfigPatch = {

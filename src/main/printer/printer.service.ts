@@ -4,7 +4,8 @@ import type { PrinterProfile, ReceiptModel } from '../types';
 import { getBackend } from './backend';
 import { ensureQueueReady } from './availability';
 import { money, printHtml, printPdf, receiptHtml, testPageHtml } from './document.service';
-import { nativeCellSize, normalizeQr, qrPngForReceipt } from './qr';
+import { nativeCellSize, normalizeQr, printableDots, qrPngForReceipt } from './qr';
+import { renderHtmlToRaster } from './html-raster';
 import type { DocumentRequest } from '../validation';
 
 type Driver = InstanceType<typeof ThermalPrinter>;
@@ -197,6 +198,52 @@ export async function printDocument(request: DocumentRequest): Promise<PrinterPr
   try {
     if (request.pdfBase64) await printPdf(profile, Buffer.from(request.pdfBase64, 'base64'), options);
     else await printHtml(profile, request.html as string, options);
+    return profile;
+  } catch (err) {
+    throw friendlyError(err, profile);
+  }
+}
+
+/** CSS width a bill page was laid out for, by paper. */
+const CSS_WIDTH: Record<string, number> = { '58mm': 219, '80mm': 302 };
+
+export interface HtmlPrintOptions {
+  /** Paper the page was laid out for: 80mm / 58mm rolls, or A4 / A5 sheets. */
+  format?: string | null;
+  copies?: number;
+  title?: string | null;
+}
+
+/**
+ * Print a ready-made HTML page, as the POS lays out its bills. On a thermal
+ * printer the page is rendered to an image at the print head's width and
+ * printed as raster strips (same look as on screen, no printer driver needed);
+ * on an A4/A5 printer it goes through the driver at the requested paper size.
+ */
+export async function printHtmlPage(html: string, printerId: string | undefined, options: HtmlPrintOptions = {}): Promise<PrinterProfile> {
+  const format = (options.format ?? '').toLowerCase();
+  const wantsSheet = format === 'a4' || format === 'a5';
+  const profile = resolvePrinter(wantsSheet ? 'document' : 'receipt', printerId ?? undefined);
+  const copies = Math.max(1, Math.min(options.copies ?? 1, 5));
+  const docName = options.title?.trim() || 'Bill';
+  try {
+    if (profile.kind === 'document') {
+      const paperSize = format === 'a5' ? 'A5' : format === 'a4' ? 'A4' : profile.paperSize;
+      await printHtml(profile, html, { docName, paperSize, copies });
+      return profile;
+    }
+    const strips = await renderHtmlToRaster(html, {
+      dots: printableDots(profile.paperWidthChars),
+      cssWidth: CSS_WIDTH[format] ?? CSS_WIDTH['80mm'],
+    });
+    const driver = buildDriver(profile);
+    for (let copy = 0; copy < copies; copy++) {
+      driver.alignCenter();
+      for (const strip of strips) await driver.printImageBuffer(strip);
+      driver.alignLeft();
+      finishReceipt(driver, profile);
+    }
+    await sendThermal(driver, profile, docName);
     return profile;
   } catch (err) {
     throw friendlyError(err, profile);

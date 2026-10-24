@@ -5,6 +5,7 @@ import { startServer, stopServer } from './server';
 import { getConfig, updateConfig } from './config-store';
 import { applyLaunchAtLogin, startedAtLogin } from './autostart';
 import { log } from './logger';
+import { cloudEvents, getCloudState, kickCloud, startCloud, type CloudState } from './cloud/cloud-client';
 import { printTestPage } from './printer/printer.service';
 import { refreshStatus, startStatusMonitor, statusEvents, stopStatusMonitor } from './status-monitor';
 import { trayIcon } from './tray-icon';
@@ -130,6 +131,16 @@ function rebuildTray(status: BridgeStatus | null = lastStatus): void {
   } else {
     items.push({ label: 'Checking devices…', enabled: false });
   }
+  const cloud = getCloudState();
+  if (cloud.state !== 'off') {
+    const cloudDot = cloud.state === 'connected' ? DOT.ok : cloud.state === 'connecting' ? DOT.warning : DOT.error;
+    const cloudText =
+      cloud.state === 'connected' ? `printing for ${cloud.shopName}`
+      : cloud.state === 'connecting' ? 'connecting…'
+      : cloud.state === 'removed' ? 'removed — pair again'
+      : 'offline, retrying';
+    items.push({ label: `${cloudDot}  AI POS: ${cloudText}`, click: showSettingsWindow });
+  }
   items.push(
     { type: 'separator' },
     { label: 'Open settings…', click: showSettingsWindow },
@@ -211,6 +222,14 @@ function watchStatus(): void {
   statusEvents.on('auto-setup-failed', (message: string) => {
     sendToWindow('notice', `Found a printer but couldn’t set it up automatically: ${message}`);
   });
+
+  cloudEvents.on('state', (cloud: CloudState) => {
+    rebuildTray();
+    sendToWindow('cloud:state', cloud);
+  });
+  cloudEvents.on('removed', (shop: string) => {
+    notify('Print station removed', `This computer no longer prints for ${shop}. Pair it again from the bridge settings.`);
+  });
 }
 
 if (!app.requestSingleInstanceLock()) {
@@ -231,6 +250,7 @@ if (!app.requestSingleInstanceLock()) {
     settingsWindow = createSettingsWindow();
     watchStatus();
     startStatusMonitor();
+    startCloud();
 
     app.on('activate', showSettingsWindow);
 
@@ -238,8 +258,12 @@ if (!app.requestSingleInstanceLock()) {
     powerMonitor.on('resume', () => {
       log.info('power event: resume');
       void refreshStatus();
+      kickCloud();
     });
-    powerMonitor.on('unlock-screen', () => void refreshStatus());
+    powerMonitor.on('unlock-screen', () => {
+      void refreshStatus();
+      kickCloud();
+    });
   });
 
   app.on('child-process-gone', (_evt, details) => log.warn('child process gone', details.type, details.reason));

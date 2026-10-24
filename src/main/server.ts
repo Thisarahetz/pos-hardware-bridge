@@ -4,12 +4,12 @@ import { createServer } from 'node:http';
 import { WebSocketServer, type WebSocket } from 'ws';
 import { getConfig, UnknownPrinterError } from './config-store';
 import { isValidToken, requireAuthToken } from './auth';
-import { printDocument, printReceipt, printTestPage } from './printer/printer.service';
+import { printDocument, printHtmlPage, printReceipt, printTestPage } from './printer/printer.service';
 import { charge, cancel, terminalStatus, terminalEvents } from './terminal/terminal.service';
 import type { BridgeStatus } from './types';
 import { getStatus, refreshStatus, statusEvents } from './status-monitor';
 import { log } from './logger';
-import { validateCharge, validateDocument, validatePrinterChoice, validateReceipt, validateReference } from './validation';
+import { validateCharge, validateDocument, validatePage, validatePrinterChoice, validateReceipt, validateReference } from './validation';
 
 let httpServer: Server | null = null;
 let wss: WebSocketServer | null = null;
@@ -112,6 +112,24 @@ function buildApp() {
     }
     try {
       const used = await printDocument(input.value);
+      res.json({ ok: true, printer: used.id });
+    } catch (err) {
+      sendPrintError(res, err);
+    }
+  });
+
+  // A ready-made HTML page (a bill as the POS lays it out): a thermal printer
+  // prints it as an image at its print-head width, an A4/A5 printer through
+  // its driver. Same path the cloud print station uses.
+  app.post('/print/page', async (req, res) => {
+    const input = validatePage(req.body);
+    if (!input.ok) {
+      res.status(400).json({ error: 'Invalid page', details: input.problems });
+      return;
+    }
+    const { html, printer, format, copies, title } = input.value;
+    try {
+      const used = await printHtmlPage(html, printer, { format, copies, title });
       res.json({ ok: true, printer: used.id });
     } catch (err) {
       sendPrintError(res, err);

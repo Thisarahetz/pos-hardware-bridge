@@ -49,6 +49,34 @@
     </details>
   </section>
 
+  <!-- AI POS cloud printing -->
+  <section class="card status-card" id="cloudCard" data-level="off">
+    <div class="status-head">
+      <span class="dot" aria-hidden="true"></span>
+      <div class="status-text">
+        <div class="eyebrow">AI POS · print from any device</div>
+        <h2 id="cloudTitle">Not connected</h2>
+        <p id="cloudDetail" class="muted"></p>
+      </div>
+      <button id="cloudDisconnect" class="link danger" hidden>Disconnect</button>
+    </div>
+    <div id="cloudForm">
+      <p class="muted small spaced">Let every cashier, tablet and phone in the shop print to the printers on this computer. In AI POS, an owner opens <strong>Settings → Printers → Add print station</strong> to get a code.</p>
+      <div class="grid2">
+        <label>AI POS server <input id="cloudServer" type="text" placeholder="api.yourpos.com" spellcheck="false" autocomplete="off" /></label>
+        <label>Name for this computer <input id="cloudName" type="text" maxlength="60" /></label>
+      </div>
+      <label>6-digit code
+        <div class="row">
+          <input id="cloudCode" type="text" inputmode="numeric" maxlength="7" placeholder="123 456" autocomplete="one-time-code" />
+          <button id="cloudPair" class="primary">Connect</button>
+        </div>
+      </label>
+      <p id="cloudError" class="result error" role="alert"></p>
+    </div>
+    <p id="cloudLastJob" class="muted small spaced"></p>
+  </section>
+
   <!-- Card terminal -->
   <section class="card status-card" id="terminalStatusCard" data-level="off">
     <div class="status-head">

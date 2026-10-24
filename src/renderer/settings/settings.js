@@ -550,11 +550,66 @@ api.onConfig((next) => {
 });
 api.onNotice(toast);
 
+
+// ---------- AI POS cloud printing ----------
+
+const CLOUD_LEVEL = { connected: 'ok', connecting: 'warning', offline: 'error', removed: 'error', off: 'off' };
+const CLOUD_TITLE = {
+  connected: (c) => `Printing for ${c.shopName}`,
+  connecting: () => 'Connecting…',
+  offline: () => 'Can’t reach AI POS',
+  removed: () => 'Removed from AI POS',
+  off: () => 'Not connected',
+};
+
+function renderCloud(c) {
+  $('cloudCard').dataset.level = CLOUD_LEVEL[c.state] ?? 'off';
+  $('cloudTitle').textContent = CLOUD_TITLE[c.state]?.(c) ?? 'Not connected';
+  const linked = c.state === 'connected' || c.state === 'connecting' || c.state === 'offline';
+  $('cloudDetail').textContent = linked
+    ? `${c.message}${c.stationName ? ` This computer is “${c.stationName}”.` : ''}`
+    : c.state === 'removed' ? c.message : 'Only this computer can print right now.';
+  $('cloudForm').hidden = linked;
+  $('cloudDisconnect').hidden = !linked;
+  if (!$('cloudServer').value && c.serverUrl) $('cloudServer').value = c.serverUrl.replace(/\/api\/v\d+$/, '');
+  const job = c.lastJob;
+  $('cloudLastJob').textContent = job
+    ? `${job.ok ? '✓ Printed' : '✗ Failed'} “${job.title}” at ${new Date(job.at).toLocaleTimeString()}${job.ok ? '' : ` — ${job.error}`}`
+    : '';
+}
+
+$('cloudCode').addEventListener('input', (e) => {
+  const digits = e.target.value.replace(/\D/g, '').slice(0, 6);
+  e.target.value = digits.length > 3 ? `${digits.slice(0, 3)} ${digits.slice(3)}` : digits;
+});
+
+$('cloudPair').addEventListener('click', (e) =>
+  busy(e.target, 'Connecting…', async () => {
+    setResult('cloudError', '');
+    const res = await api.pairCloud($('cloudServer').value, $('cloudCode').value, $('cloudName').value);
+    if (!res.ok) return setResult('cloudError', res.error, 'error');
+    $('cloudCode').value = '';
+    renderCloud(res.value);
+    toast(`Connected. Every POS device in ${res.value.shopName ?? 'the shop'} can print here now.`);
+  }),
+);
+
+$('cloudDisconnect').addEventListener('click', async () => {
+  if (!confirm('Stop printing for AI POS? Other devices will no longer be able to print to this computer.')) return;
+  const res = await api.disconnectCloud();
+  if (res.ok) renderCloud(res.value);
+  else toast(res.error);
+});
+
+api.onCloud(renderCloud);
+
 // ---------- start ----------
 
 (async () => {
   config = await api.getConfig();
   renderConfig();
   renderStatus(await api.getStatus());
+  $('cloudName').value = await api.defaultStationName();
+  renderCloud(await api.getCloud());
   if (config.terminal.enabled) await loadPorts();
 })();
