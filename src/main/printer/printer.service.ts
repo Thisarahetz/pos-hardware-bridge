@@ -22,6 +22,15 @@ function buildDriver(profile: PrinterProfile): Driver {
   });
 }
 
+/** End of a receipt: feed paper, then cut (or leave it to tear off). */
+function finishReceipt(driver: Driver, profile: PrinterProfile, cut = true): void {
+  const lines = Math.max(0, Math.min(profile.feedLines ?? 3, 12));
+  for (let i = 0; i < lines; i++) driver.newLine();
+  if (!cut || profile.cutter === 'none') return;
+  if (profile.cutter === 'partial') driver.partialCut({ verticalTabAmount: 0 });
+  else driver.cut({ verticalTabAmount: 0 });
+}
+
 function renderReceipt(driver: Driver, receipt: ReceiptModel): void {
   driver.alignCenter();
   driver.bold(true);
@@ -65,8 +74,6 @@ function renderReceipt(driver: Driver, receipt: ReceiptModel): void {
     driver.alignCenter();
     driver.println(receipt.footer);
   }
-
-  driver.cut();
 }
 
 /** A device problem the cashier can act on (sent to the POS as HTTP 502). */
@@ -105,7 +112,7 @@ async function sendThermal(driver: Driver, profile: PrinterProfile, docName: str
 
 /** Print a receipt on the named printer (or the default receipt printer).
  * A4/A5 document printers get the same receipt laid out as a page. */
-export async function printReceipt(receipt: ReceiptModel, printerId?: string): Promise<PrinterProfile> {
+export async function printReceipt(receipt: ReceiptModel, printerId?: string, cut = true): Promise<PrinterProfile> {
   const profile = resolvePrinter('receipt', printerId);
   try {
     if (profile.kind === 'document') {
@@ -113,6 +120,7 @@ export async function printReceipt(receipt: ReceiptModel, printerId?: string): P
     } else {
       const driver = buildDriver(profile);
       renderReceipt(driver, receipt);
+      finishReceipt(driver, profile, cut);
       await sendThermal(driver, profile, `Receipt ${receipt.saleReference}`);
     }
     return profile;
@@ -142,10 +150,17 @@ export async function printTestPage(printerId?: string): Promise<PrinterProfile>
     driver.println(`API name: ${profile.id}`);
     driver.println(`Connection: ${where}`);
     driver.println(`Width: ${profile.paperWidthChars} characters`);
+    driver.println(`Cutter: ${profile.cutter === 'none' ? 'none (tear off)' : profile.cutter === 'partial' ? 'partial cut' : 'full cut'}`);
     driver.println(new Date().toLocaleString());
     // Ruler: the last digit should sit exactly at the right edge of the paper.
     driver.println('1234567890'.repeat(Math.ceil(profile.paperWidthChars / 10)).slice(0, profile.paperWidthChars));
-    driver.cut();
+    driver.newLine();
+    driver.println(
+      profile.cutter === 'none'
+        ? 'Tear here. If this line is still inside the printer, choose more paper at the end.'
+        : 'If the paper was not cut, set the cutter to "No cutter".',
+    );
+    finishReceipt(driver, profile);
     await sendThermal(driver, profile, 'Test page');
     return profile;
   } catch (err) {

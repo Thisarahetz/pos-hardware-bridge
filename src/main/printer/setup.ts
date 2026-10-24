@@ -3,9 +3,16 @@ import type { PrinterKind, PrinterProfile } from '../types';
 import { getBackend } from './backend';
 import { discoverPrinters, type DiscoveredPrinter } from './discovery';
 
+const SMALL_PRINTER = /58|portable|mini|mobile/i;
+
 /** Small portable printers are almost always 58mm (32 chars); desktop ones 80mm (42). */
 function guessPaperWidth(label: string): number {
-  return /58|portable|mini|mobile/i.test(label) ? 32 : 42;
+  return SMALL_PRINTER.test(label) ? 32 : 42;
+}
+
+/** Portable printers rarely have a cutter; desktop receipt printers almost always do. */
+function guessCutter(label: string): Pick<PrinterProfile, 'cutter' | 'feedLines'> {
+  return SMALL_PRINTER.test(label) ? { cutter: 'none', feedLines: 4 } : { cutter: 'full', feedLines: 3 };
 }
 
 export interface AddPrinterOptions {
@@ -43,6 +50,7 @@ export async function addDiscoveredPrinter(printer: DiscoveredPrinter, options: 
     name: options.name?.trim() || printer.label,
     connection,
     paperWidthChars: guessPaperWidth(printer.label),
+    ...guessCutter(printer.label),
   };
   addPrinter(profile);
   return profile;

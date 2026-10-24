@@ -9,6 +9,8 @@ export type PrinterConnection =
   /** A receipt printer reached directly over the network (raw port 9100). */
   | { type: 'tcp'; host: string; port: number };
 
+export type ReceiptCutter = 'full' | 'partial' | 'none';
+
 export type DocumentPaperSize = 'A4' | 'A5' | 'Letter' | 'Legal';
 
 export interface PrinterProfile {
@@ -22,6 +24,11 @@ export interface PrinterProfile {
   language: 'epson' | 'star';
   /** Receipt printers: characters per line (58mm ≈ 32, 80mm ≈ 42–48). */
   paperWidthChars: number;
+  /** Receipt printers: what happens at the end of a receipt. Printers without a
+   * cutter ("none") get extra paper fed so the text clears the tear bar. */
+  cutter: ReceiptCutter;
+  /** Receipt printers: blank lines fed after the receipt, before cutting/tearing. */
+  feedLines: number;
   /** Document printers: default paper size. */
   paperSize: DocumentPaperSize;
 }

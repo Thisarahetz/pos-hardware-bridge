@@ -95,9 +95,9 @@ function buildApp() {
       res.status(400).json({ error: 'Invalid receipt', details: input.problems });
       return;
     }
-    const { printer, ...receipt } = input.value;
+    const { printer, cut, ...receipt } = input.value;
     try {
-      const used = await printReceipt(receipt, printer);
+      const used = await printReceipt(receipt, printer, cut !== false);
       res.json({ ok: true, printer: used.id });
     } catch (err) {
       sendPrintError(res, err);

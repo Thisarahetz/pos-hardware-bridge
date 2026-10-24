@@ -141,6 +141,18 @@ function printerSettings(p, isDefault) {
     rows.push(
       option('Paper size', 'Run a test print — the number line should reach the right edge.', segmented(RECEIPT_WIDTHS, p.paperWidthChars, (v) => changePrinter(p.id, { paperWidthChars: Number(v) }, 'Paper size saved'))),
       option('Printer language', 'Most printers use ESC/POS. Choose Star only for Star Micronics printers.', segmented([['epson', 'ESC/POS'], ['star', 'Star']], p.language, (v) => changePrinter(p.id, { language: v }, 'Printer language saved'))),
+      option(
+        'Paper cutter',
+        'Does this printer cut the paper by itself? Choose “No cutter” if the cashier tears receipts off by hand.',
+        segmented([['full', 'Full cut'], ['partial', 'Partial cut'], ['none', 'No cutter']], p.cutter ?? 'full', (v) =>
+          changePrinter(p.id, v === 'none' && (p.feedLines ?? 3) < 4 ? { cutter: v, feedLines: 4 } : { cutter: v }, 'Cutter setting saved'),
+        ),
+      ),
+      option(
+        'Extra paper at the end',
+        p.cutter === 'none' ? 'Feeds the receipt past the tear bar so no text is torn off.' : 'Blank space after the last line, before the cut.',
+        segmented([['1', 'Less'], ['3', 'Normal'], ['4', 'More'], ['6', 'Most']], String(p.feedLines ?? 3), (v) => changePrinter(p.id, { feedLines: Number(v) }, 'Saved')),
+      ),
     );
   } else {
     rows.push(option('Paper size', 'Used when the POS doesn’t ask for a size.', segmented(PAPER_SIZES.map((x) => [x, x]), p.paperSize, (v) => changePrinter(p.id, { paperSize: v }, 'Paper size saved'))));
@@ -209,7 +221,8 @@ function renderPrinterCards() {
     ...printers.map((p, index) => {
       const status = lastStatus?.printers.find((x) => x.id === p.id) ?? { level: 'off', title: 'Checking…', detail: '', steps: [] };
       const isDefault = printers.findIndex((x) => x.kind === p.kind) === index;
-      const detail = p.kind === 'receipt' ? `${RECEIPT_WIDTHS.find(([w]) => w === String(p.paperWidthChars))?.[1] ?? `${p.paperWidthChars} chars`}` : p.paperSize;
+      const width = RECEIPT_WIDTHS.find(([w]) => w === String(p.paperWidthChars))?.[1] ?? `${p.paperWidthChars} chars`;
+      const detail = p.kind === 'receipt' ? `${width}${p.cutter === 'none' ? ' · no cutter' : ''}` : p.paperSize;
       const result = el('p', { class: 'result', role: 'status' });
 
       const fix =

@@ -51,7 +51,9 @@ migrateLegacyPrinter();
 
 export function getConfig(): BridgeConfig {
   const { printer: _legacy, ...config } = store.store;
-  return { ...config, app: { ...defaults.app, ...config.app }, printers: config.printers ?? [] };
+  // Fill in settings added after a printer was saved (e.g. the cutter option).
+  const printers = (config.printers ?? []).map((p) => ({ ...newProfileDefaults(p.kind), ...p }));
+  return { ...config, app: { ...defaults.app, ...config.app }, printers };
 }
 
 export type ConfigPatch = {
@@ -81,7 +83,7 @@ export function regenerateAuthToken(): string {
 // ---------- printers ----------
 
 export function newProfileDefaults(kind: PrinterKind): Omit<PrinterProfile, 'id' | 'name' | 'connection'> {
-  return { kind, language: 'epson', paperWidthChars: 42, paperSize: 'A4' };
+  return { kind, language: 'epson', paperWidthChars: 42, cutter: 'full', feedLines: 3, paperSize: 'A4' };
 }
 
 function slug(text: string): string {

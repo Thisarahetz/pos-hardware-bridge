@@ -28,6 +28,7 @@ function checkPrinterName(body: Record<string, unknown>, problems: string[]): vo
 const checkReceipt: Check = (body) => {
   const problems: string[] = [];
   checkPrinterName(body, problems);
+  if (body.cut !== undefined && typeof body.cut !== 'boolean') problems.push('"cut" must be true or false when given');
   requireText(body, 'businessName', problems);
   requireText(body, 'saleReference', problems);
   requireText(body, 'timestamp', problems);
@@ -118,7 +119,7 @@ export interface DocumentRequest {
   copies?: number;
 }
 
-export const validateReceipt = (body: unknown) => validate<ReceiptModel & { printer?: string }>(body, checkReceipt);
+export const validateReceipt = (body: unknown) => validate<ReceiptModel & { printer?: string; cut?: boolean }>(body, checkReceipt);
 export const validateDocument = (body: unknown) => validate<DocumentRequest>(body, checkDocument);
 export const validatePrinterChoice = (body: unknown) =>
   validate<{ printer?: string }>(body ?? {}, (b) => {

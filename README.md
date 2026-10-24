@@ -58,6 +58,10 @@ not stop it. To turn auto-start off: tray icon → untick **Start with computer*
      *Network printer by IP address* (port is usually `9100`).
 2. Click **Test print** on the printer. The number line at the bottom should reach the
    right edge of the paper. If not, open **Settings** and change **Paper size** (58 mm / 80 mm).
+   - **Paper cutter:** if the printer cuts the paper by itself, choose **Full cut** or
+     **Partial cut** (partial leaves a small tab so the receipt doesn't fall). If the cashier
+     tears receipts off by hand, choose **No cutter**. The bridge then feeds extra paper so no
+     text is torn off. Adjust **Extra paper at the end** if needed.
 3. **A4 printer for invoices (optional):** first install it the normal way
    (Windows: *Settings → Printers & scanners*; macOS: *System Settings →
    Printers & Scanners*). Then in the bridge, under **Add a printer**, click
@@ -228,6 +232,7 @@ are written for cashiers, so you can show them as they are.
 | Field | Type | Required | Notes |
 | --- | --- | --- | --- |
 | `printer` | string | | API name, e.g. `"kitchen"`. Defaults to the default receipt printer |
+| `cut` | boolean | | `false` skips the cut, e.g. to print several tickets in a row. Default `true` |
 | `businessName` | string | ✔ | Printed bold at the top |
 | `locationName` | string | | Second header line |
 | `saleReference` | string | ✔ | Your sale/order number |
@@ -424,6 +429,8 @@ or PWA build.
 | A4 printer not listed under *Add a printer* | Install it in the computer's printer settings first, then click **Search again**. |
 | *No printer named "…"* | The POS uses an API name that doesn't exist. Check the names on the printer cards, or under `GET /printers`. |
 | Text cut off or too narrow | Change **Paper size**, then print a test page. |
+| Receipt not cut, or the last lines stay inside the printer | The printer has no cutter: in its **Settings** set **Paper cutter** to **No cutter**, and choose **More** under *Extra paper at the end*. |
+| Cut too close to the text, or too much blank paper | Change **Extra paper at the end**. |
 | POS says *unauthorized* | Copy the access token from settings into the POS again. |
 | *API stopped – port in use* | Another program uses port 9191. The bridge keeps retrying. Close that program, or change the port under Developer details and update the POS. |
 | Need logs for support | Tray icon → **Open log folder** → send `bridge.log`. |
