@@ -5,6 +5,7 @@ import { startServer, stopServer } from './server';
 import { getConfig, updateConfig } from './config-store';
 import { applyLaunchAtLogin, startedAtLogin } from './autostart';
 import { log } from './logger';
+import { checkForUpdates, getUpdateState, installUpdateNow, startAutoUpdates, updateEvents } from './updater';
 import { cloudEvents, getCloudState, kickCloud, startCloud, type CloudState } from './cloud/cloud-client';
 import { printTestPage } from './printer/printer.service';
 import { refreshStatus, startStatusMonitor, statusEvents, stopStatusMonitor } from './status-monitor';
@@ -161,6 +162,7 @@ function rebuildTray(status: BridgeStatus | null = lastStatus): void {
       },
     },
     { label: 'Open log folder', click: () => void shell.openPath(log.dir() ?? app.getPath('logs')) },
+    updateMenuItem(),
     { type: 'separator' },
     {
       label: 'Quit',
@@ -171,6 +173,19 @@ function rebuildTray(status: BridgeStatus | null = lastStatus): void {
     },
   );
   tray.setContextMenu(Menu.buildFromTemplate(items));
+}
+
+function updateMenuItem(): Electron.MenuItemConstructorOptions {
+  const u = getUpdateState();
+  const version = `v${app.getVersion()}`;
+  if (u.state === 'ready') return { label: `Restart to update to v${u.version}`, click: installUpdateNow };
+  if (u.state === 'downloading') return { label: `Downloading update v${u.version}… ${u.percent}%`, enabled: false };
+  if (u.state === 'checking') return { label: `${version} · checking for updates…`, enabled: false };
+  return {
+    label: `${version} · ${u.state === 'up-to-date' ? 'up to date' : 'check for updates'}`,
+    enabled: app.isPackaged,
+    click: () => void checkForUpdates(),
+  };
 }
 
 function createTray(): void {
@@ -251,6 +266,11 @@ if (!app.requestSingleInstanceLock()) {
     watchStatus();
     startStatusMonitor();
     startCloud();
+    startAutoUpdates();
+    updateEvents.on('state', (u) => {
+      rebuildTray();
+      if (u.state === 'ready') notify('Update ready', `Version ${u.version} installs the next time the bridge restarts.`);
+    });
 
     app.on('activate', showSettingsWindow);
 

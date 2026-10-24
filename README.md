@@ -127,6 +127,34 @@ POS, revokes it immediately.
 
 ## Connect your POS – quick start
 
+### Recommended: the SDK and ReceiptLine
+
+Send receipts as **[ReceiptLine](https://github.com/receiptline/receiptline)**
+documents (an open "Markdown for receipts" standard). The bridge prints them
+with the printer's own fonts: sharp, correctly sized for 58mm and 80mm paper,
+and a few KB per receipt. The **`pos-hardware-bridge`** npm package
+([packages/sdk](packages/sdk#readme)) builds them for you:
+
+```js
+import { BridgeClient, receipt } from 'pos-hardware-bridge';
+
+const bridge = new BridgeClient({ token: '<access token>' });
+await bridge.print(
+  receipt()
+    .title('My Shop')
+    .row('Bill', '#1042')
+    .item({ name: 'Latte', qty: 2, total: '9.00' })
+    .total('TOTAL', 'LKR 1,250.00', { emphasis: true })
+    .qr('https://myshop.example/r/1042', { caption: 'Scan for your e-receipt' }),
+);
+```
+
+Read the [receipt document guideline](packages/sdk#the-receipt-document-guideline)
+before designing a bill. Use HTML (`/print/document`) only for A4/A5
+invoices, which the driver prints as sharp vector text.
+
+### Plain HTTP
+
 Every request except `/health` needs the access token from the settings window:
 
 ```
@@ -198,7 +226,9 @@ units** (cents): `12.50` is sent as `1250`.
 | `GET` | `/health` | – | Is the bridge running? Are devices ready? |
 | `GET` | `/status` | ✔ | Plain-language device status to show the cashier |
 | `GET` | `/printers` | ✔ | All configured printers with their API names and status |
-| `POST` | `/print/receipt` | ✔ | Print a receipt (thermal, or laid out on A4) |
+| `POST` | `/print/receiptline` | ✔ | **Recommended.** Print a ReceiptLine receipt with the printer's own fonts |
+| `POST` | `/preview/receiptline` | ✔ | The same receipt as an SVG, exactly as it will print |
+| `POST` | `/print/receipt` | ✔ | Print a receipt from structured JSON (thermal, or laid out on A4) |
 | `POST` | `/print/document` | ✔ | Print an A4/A5 invoice or document (HTML or PDF) |
 | `POST` | `/print/page` | ✔ | Print a ready-made HTML bill on any printer (thermal printers print it as an image) |
 | `POST` | `/print/test` | ✔ | Print a test page (`{"printer":"…"}` optional) |
@@ -309,6 +339,19 @@ data laid out as a page with an item table and totals. That's a quick way
 to get A4 invoices without writing any HTML.
 
 Response: `{ "ok": true, "printer": "receipt" }`, naming the printer that was used.
+
+### `POST /print/receiptline`
+
+```json
+{ "document": "^^^My Shop\nBill | #1042\n-\n^^TOTAL | ^^LKR 1,250.00", "printer": "receipt", "copies": 1, "cut": true, "title": "Bill #1042" }
+```
+
+`document` is a [ReceiptLine](https://github.com/receiptline/receiptline#grammar)
+document. It's laid out for the printer's own width (set by **Paper size** in its
+settings) and printed in the printer's fonts, with the printer's **Character
+set**. Feed and cut follow its cutter settings. On an A4/A5 printer it prints as
+a centred receipt column. `POST /preview/receiptline` with the same body
+returns `{ svg, cpl, printer }` for showing the receipt on screen.
 
 ### `POST /print/page`
 
@@ -521,6 +564,23 @@ npm run dev:start  # rebuild on save and run
 
 Auto-start isn't registered while you run from source; it only applies to
 the installed app.
+
+### Releases and automatic updates
+
+Installed bridges update themselves from this repo's GitHub Releases. They
+check 30 s after starting and then every 6 hours, download in the background,
+and install the next time the bridge or the computer restarts. The tray shows
+the version, and **Restart to update** once an update has downloaded. To release:
+
+```bash
+npm version 1.1.0 --no-git-tag-version   # bump package.json
+git commit -am "Release 1.1.0" && git tag v1.1.0 && git push --follow-tags
+```
+
+The **Build Windows installer** workflow sees the `v*` tag, checks it matches
+`package.json`, and publishes the installer plus `latest.yml` (what updaters
+read) to a GitHub Release. macOS only updates itself when the app is
+code-signed. Until then, install new Mac versions by hand.
 
 ### Building installers
 

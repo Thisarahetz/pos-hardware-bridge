@@ -1,6 +1,6 @@
 {
   "name": "pos-hardware-bridge",
-  "version": "0.1.0",
+  "version": "1.0.0",
   "private": true,
   "description": "Desktop tray app exposing a local HTTP/WebSocket API for receipt printers and payment terminals, for use by any browser-based POS (GlowDesk, SmartPOS, Restaurant POS, etc.)",
   "main": "dist/main/index.js",
@@ -14,10 +14,12 @@
     "icon": "npm run build && node scripts/make-icon.js",
     "dist:win": "npm run icon && electron-builder --win --x64",
     "dist:mac": "npm run icon && electron-builder --mac",
-    "dist:win:from-mac": "npm run icon && electron-builder --win --x64 -c.win.signAndEditExecutable=false"
+    "dist:win:from-mac": "npm run icon && electron-builder --win --x64 -c.win.signAndEditExecutable=false",
+    "release:win": "npm run icon && electron-builder --win --x64 --publish always"
   },
   "dependencies": {
     "electron-store": "^8.2.0",
+    "electron-updater": "^6.8.10",
     "express": "^4.22.3",
     "node-thermal-printer": "^4.4.4",
     "qrcode": "^1.5.4",
@@ -78,7 +80,15 @@
     "linux": {
       "target": "AppImage",
       "category": "Office"
-    }
+    },
+    "publish": [
+      {
+        "provider": "github",
+        "owner": "Thisarahetz",
+        "repo": "pos-hardware-bridge",
+        "releaseType": "release"
+      }
+    ]
   },
   "author": {
     "name": "Thisara Hettikankanam"
