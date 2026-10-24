@@ -4,6 +4,7 @@ import os from 'node:os';
 import { getConfig } from '../config-store';
 import { log } from '../logger';
 import { printHtmlPage, printTestPage } from '../printer/printer.service';
+import { printReceiptLine } from '../printer/receiptline.service';
 import { getStatus, statusEvents } from '../status-monitor';
 import {
   clearCloudLink,
@@ -40,6 +41,8 @@ interface StationJob {
   kind: string;
   printer: string | null;
   html: string | null;
+  /** A ReceiptLine document: printed with the printer's own fonts. */
+  receiptline?: string | null;
   format: string | null;
   title: string | null;
   copies: number;
@@ -152,6 +155,10 @@ const sleep = (ms: number) =>
 async function printJob(job: StationJob): Promise<void> {
   if (job.kind === 'test') {
     await printTestPage(job.printer ?? undefined);
+    return;
+  }
+  if (job.receiptline) {
+    await printReceiptLine(job.receiptline, job.printer ?? undefined, { copies: job.copies, title: job.title });
     return;
   }
   if (!job.html) throw new Error('The print job had no page to print.');

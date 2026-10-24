@@ -5,11 +5,12 @@ import { WebSocketServer, type WebSocket } from 'ws';
 import { getConfig, UnknownPrinterError } from './config-store';
 import { isValidToken, requireAuthToken } from './auth';
 import { printDocument, printHtmlPage, printReceipt, printTestPage } from './printer/printer.service';
+import { previewReceiptLine, printReceiptLine } from './printer/receiptline.service';
 import { charge, cancel, terminalStatus, terminalEvents } from './terminal/terminal.service';
 import type { BridgeStatus } from './types';
 import { getStatus, refreshStatus, statusEvents } from './status-monitor';
 import { log } from './logger';
-import { validateCharge, validateDocument, validatePage, validatePrinterChoice, validateReceipt, validateReference } from './validation';
+import { validateCharge, validateDocument, validatePage, validatePrinterChoice, validateReceipt, validateReceiptLine, validateReference } from './validation';
 
 let httpServer: Server | null = null;
 let wss: WebSocketServer | null = null;
@@ -131,6 +132,37 @@ function buildApp() {
     try {
       const used = await printHtmlPage(html, printer, { format, copies, title });
       res.json({ ok: true, printer: used.id });
+    } catch (err) {
+      sendPrintError(res, err);
+    }
+  });
+
+  // ReceiptLine (open receipt markup, https://github.com/receiptline/receiptline):
+  // printed with the printer's own fonts — the recommended way to print receipts.
+  app.post('/print/receiptline', async (req, res) => {
+    const input = validateReceiptLine(req.body);
+    if (!input.ok) {
+      res.status(400).json({ error: 'Invalid ReceiptLine request', details: input.problems });
+      return;
+    }
+    const { document, printer, copies, cut, title } = input.value;
+    try {
+      const used = await printReceiptLine(document, printer, { copies, cut, title });
+      res.json({ ok: true, printer: used.id });
+    } catch (err) {
+      sendPrintError(res, err);
+    }
+  });
+
+  /** The same document as an SVG, laid out exactly as the printer will print it. */
+  app.post('/preview/receiptline', (req, res) => {
+    const input = validateReceiptLine(req.body);
+    if (!input.ok) {
+      res.status(400).json({ error: 'Invalid ReceiptLine request', details: input.problems });
+      return;
+    }
+    try {
+      res.json(previewReceiptLine(input.value.document, input.value.printer));
     } catch (err) {
       sendPrintError(res, err);
     }

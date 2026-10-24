@@ -9,6 +9,11 @@ export type PrinterConnection =
   /** A receipt printer reached directly over the network (raw port 9100). */
   | { type: 'tcp'; host: string; port: number };
 
+/** Character sets thermal printers support (ReceiptLine names). */
+export type ReceiptEncoding =
+  | 'multilingual' | 'cp437' | 'cp852' | 'cp858' | 'cp860' | 'cp863' | 'cp865' | 'cp866' | 'cp1252'
+  | 'cp932' | 'shiftjis' | 'cp936' | 'gb18030' | 'cp949' | 'ksc5601' | 'cp950' | 'big5' | 'tis620';
+
 export type ReceiptCutter = 'full' | 'partial' | 'none';
 
 export type DocumentPaperSize = 'A4' | 'A5' | 'Letter' | 'Legal';
@@ -22,6 +27,8 @@ export interface PrinterProfile {
   connection: PrinterConnection;
   /** Receipt printers: command language. */
   language: 'epson' | 'star';
+  /** Receipt printers: character set for text (ReceiptLine encoding name). */
+  encoding: ReceiptEncoding;
   /** Receipt printers: characters per line (58mm ≈ 32, 80mm ≈ 42–48). */
   paperWidthChars: number;
   /** Receipt printers: what happens at the end of a receipt. Printers without a

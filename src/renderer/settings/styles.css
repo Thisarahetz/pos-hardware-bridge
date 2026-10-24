@@ -224,3 +224,4 @@ pre {
 code { font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; font-size: 12px; background: var(--hover); padding: 1px 5px; border-radius: 4px; }
 .grow { flex: 1; }
 .empty-state ol { text-align: left; display: inline-block; margin: 8px 0 0; }
+.option > select { width: auto; max-width: 260px; flex: none; }

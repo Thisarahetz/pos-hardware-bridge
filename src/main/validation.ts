@@ -165,6 +165,32 @@ export const validatePage = (body: unknown) =>
     return problems;
   });
 
+export interface ReceiptLineRequest {
+  document: string;
+  printer?: string;
+  copies?: number;
+  cut?: boolean;
+  title?: string;
+}
+
+/** ReceiptLine documents: https://github.com/receiptline/receiptline#grammar */
+export const validateReceiptLine = (body: unknown) =>
+  validate<ReceiptLineRequest>(body, (b) => {
+    const problems: string[] = [];
+    checkPrinterName(b, problems);
+    if (!isText(b.document)) {
+      problems.push('"document" must be a ReceiptLine document (see https://github.com/receiptline/receiptline#grammar)');
+    } else if ((b.document as string).length > 500_000) {
+      problems.push('"document" is too large (max 500 KB; shrink embedded images)');
+    }
+    if (b.copies !== undefined && !(Number.isInteger(b.copies) && (b.copies as number) >= 1 && (b.copies as number) <= 5)) {
+      problems.push('"copies" must be a whole number from 1 to 5');
+    }
+    if (b.cut !== undefined && typeof b.cut !== 'boolean') problems.push('"cut" must be true or false');
+    if (b.title !== undefined && typeof b.title !== 'string') problems.push('"title" must be a string when given');
+    return problems;
+  });
+
 export const validateCharge = (body: unknown) => validate<TerminalChargeRequest>(body, checkCharge);
 export const validateReference = (body: unknown) =>
   validate<{ reference: string }>(body, (b) => (isText(b.reference) ? [] : ['"reference" is required']));

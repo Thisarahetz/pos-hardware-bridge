@@ -8,9 +8,9 @@ import { nativeCellSize, normalizeQr, printableDots, qrPngForReceipt } from './q
 import { renderHtmlToRaster } from './html-raster';
 import type { DocumentRequest } from '../validation';
 
-type Driver = InstanceType<typeof ThermalPrinter>;
+export type Driver = InstanceType<typeof ThermalPrinter>;
 
-function buildDriver(profile: PrinterProfile): Driver {
+export function buildDriver(profile: PrinterProfile): Driver {
   const { connection } = profile;
   return new ThermalPrinter({
     type: profile.language === 'star' ? PrinterTypes.STAR : PrinterTypes.EPSON,
@@ -25,7 +25,7 @@ function buildDriver(profile: PrinterProfile): Driver {
 }
 
 /** End of a receipt: feed paper, then cut (or leave it to tear off). */
-function finishReceipt(driver: Driver, profile: PrinterProfile, cut = true): void {
+export function finishReceipt(driver: Driver, profile: PrinterProfile, cut = true): void {
   const lines = Math.max(0, Math.min(profile.feedLines ?? 3, 12));
   for (let i = 0; i < lines; i++) driver.newLine();
   if (!cut || profile.cutter === 'none') return;
@@ -115,7 +115,7 @@ export function friendlyError(err: unknown, profile: PrinterProfile): Error {
   return new PrinterError(`${who}: ${raw}`);
 }
 
-async function sendThermal(driver: Driver, profile: PrinterProfile, docName: string): Promise<void> {
+export async function sendThermal(driver: Driver, profile: PrinterProfile, docName: string): Promise<void> {
   const { connection } = profile;
   if (connection.type === 'system') {
     await ensureQueueReady(connection.queueName);

@@ -123,6 +123,28 @@ async function changePrinter(id, patch, message = 'Saved') {
   toast(message);
 }
 
+const ENCODINGS = [
+  ['multilingual', 'Multilingual (English, European)'],
+  ['cp1252', 'Western European'],
+  ['cp852', 'Central European'],
+  ['cp866', 'Cyrillic'],
+  ['cp860', 'Portuguese'],
+  ['cp863', 'French Canadian'],
+  ['cp865', 'Nordic'],
+  ['tis620', 'Thai'],
+  ['cp932', 'Japanese'],
+  ['gb18030', 'Chinese (Simplified)'],
+  ['big5', 'Chinese (Traditional)'],
+  ['ksc5601', 'Korean'],
+];
+
+function encodingSelect(p) {
+  const select = el('select', { 'aria-label': 'Character set' }, ...ENCODINGS.map(([value, label]) => el('option', { value }, label)));
+  select.value = p.encoding ?? 'multilingual';
+  select.addEventListener('change', () => changePrinter(p.id, { encoding: select.value }, 'Character set saved'));
+  return select;
+}
+
 function printerSettings(p, isDefault) {
   const nameInput = el('input', { type: 'text', value: p.name });
   nameInput.addEventListener('change', () => nameInput.value.trim() && changePrinter(p.id, { name: nameInput.value.trim() }, 'Name saved'));
@@ -141,6 +163,11 @@ function printerSettings(p, isDefault) {
     rows.push(
       option('Paper size', 'Run a test print — the number line should reach the right edge.', segmented(RECEIPT_WIDTHS, p.paperWidthChars, (v) => changePrinter(p.id, { paperWidthChars: Number(v) }, 'Paper size saved'))),
       option('Printer language', 'Most printers use ESC/POS. Choose Star only for Star Micronics printers.', segmented([['epson', 'ESC/POS'], ['star', 'Star']], p.language, (v) => changePrinter(p.id, { language: v }, 'Printer language saved'))),
+      option(
+        'Character set',
+        'Which letters the printer prints. “Multilingual” covers English and most European languages.',
+        encodingSelect(p),
+      ),
       option(
         'Paper cutter',
         'Does this printer cut the paper by itself? Choose “No cutter” if the cashier tears receipts off by hand.',
