@@ -2,14 +2,14 @@ import express from 'express';
 import type { Server } from 'node:http';
 import { createServer } from 'node:http';
 import { WebSocketServer, type WebSocket } from 'ws';
-import { getConfig } from './config-store';
+import { getConfig, UnknownPrinterError } from './config-store';
 import { isValidToken, requireAuthToken } from './auth';
-import { printReceipt, printTestPage } from './printer/printer.service';
+import { printDocument, printReceipt, printTestPage } from './printer/printer.service';
 import { charge, cancel, terminalStatus, terminalEvents } from './terminal/terminal.service';
 import type { BridgeStatus } from './types';
 import { getStatus, refreshStatus, statusEvents } from './status-monitor';
 import { log } from './logger';
-import { validateCharge, validateReceipt, validateReference } from './validation';
+import { validateCharge, validateDocument, validatePrinterChoice, validateReceipt, validateReference } from './validation';
 
 let httpServer: Server | null = null;
 let wss: WebSocketServer | null = null;
@@ -21,9 +21,16 @@ function broadcast(event: string, payload: unknown): void {
   });
 }
 
+/** 404 for an unknown printer name, 502 for a device problem the cashier can fix. */
+function sendPrintError(res: express.Response, err: unknown): void {
+  const message = err instanceof Error ? err.message : 'print failed';
+  res.status(err instanceof UnknownPrinterError ? 404 : 502).json({ error: message });
+}
+
 function buildApp() {
   const app = express();
-  app.use(express.json({ limit: '1mb' }));
+  // Large enough for an A4 invoice sent as a base64 PDF with images.
+  app.use(express.json({ limit: '20mb' }));
 
   // CORS: any localhost origin may call this (POS web apps typically run on
   // e.g. http://localhost:3140), but the bearer token below is the real gate.
@@ -47,10 +54,11 @@ function buildApp() {
     const status = getStatus();
     res.json({
       ok: true,
-      printer: getConfig().printer.enabled,
+      printer: getConfig().printers.length > 0,
       terminal: getConfig().terminal.enabled,
       printerReady: status?.printer.level === 'ok',
       terminalReady: status?.terminal.level === 'ok',
+      printers: (status?.printers ?? []).map((p) => ({ id: p.id, kind: p.kind, ready: p.level === 'ok' })),
     });
   });
 
@@ -61,26 +69,66 @@ function buildApp() {
     res.json(getStatus() ?? (await refreshStatus()));
   });
 
+  // Every configured printer with its status, so the POS can offer a choice.
+  app.get('/printers', async (_req, res) => {
+    const status = getStatus() ?? (await refreshStatus());
+    res.json(
+      getConfig().printers.map((p, i, all) => {
+        const s = status.printers.find((x) => x.id === p.id);
+        return {
+          id: p.id,
+          name: p.name,
+          kind: p.kind,
+          isDefault: all.findIndex((x) => x.kind === p.kind) === i,
+          paperSize: p.kind === 'document' ? p.paperSize : undefined,
+          paperWidthChars: p.kind === 'receipt' ? p.paperWidthChars : undefined,
+          ready: s?.level === 'ok',
+          status: s ? { level: s.level, title: s.title, detail: s.detail, steps: s.steps } : undefined,
+        };
+      }),
+    );
+  });
+
   app.post('/print/receipt', async (req, res) => {
     const input = validateReceipt(req.body);
     if (!input.ok) {
       res.status(400).json({ error: 'Invalid receipt', details: input.problems });
       return;
     }
+    const { printer, ...receipt } = input.value;
     try {
-      await printReceipt(input.value);
-      res.json({ ok: true });
+      const used = await printReceipt(receipt, printer);
+      res.json({ ok: true, printer: used.id });
     } catch (err) {
-      res.status(502).json({ error: err instanceof Error ? err.message : 'print failed' });
+      sendPrintError(res, err);
     }
   });
 
-  app.post('/print/test', async (_req, res) => {
+  app.post('/print/document', async (req, res) => {
+    const input = validateDocument(req.body);
+    if (!input.ok) {
+      res.status(400).json({ error: 'Invalid document', details: input.problems });
+      return;
+    }
     try {
-      await printTestPage();
-      res.json({ ok: true });
+      const used = await printDocument(input.value);
+      res.json({ ok: true, printer: used.id });
     } catch (err) {
-      res.status(502).json({ error: err instanceof Error ? err.message : 'print failed' });
+      sendPrintError(res, err);
+    }
+  });
+
+  app.post('/print/test', async (req, res) => {
+    const input = validatePrinterChoice(req.body);
+    if (!input.ok) {
+      res.status(400).json({ error: 'Invalid request', details: input.problems });
+      return;
+    }
+    try {
+      const used = await printTestPage(input.value.printer);
+      res.json({ ok: true, printer: used.id });
+    } catch (err) {
+      sendPrintError(res, err);
     }
   });
 

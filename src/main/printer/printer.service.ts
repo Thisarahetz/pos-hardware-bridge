@@ -1,37 +1,28 @@
 import { printer as ThermalPrinter, types as PrinterTypes } from 'node-thermal-printer';
-import { getConfig } from '../config-store';
-import type { PrinterConfig, ReceiptModel } from '../types';
+import { resolvePrinter } from '../config-store';
+import type { PrinterProfile, ReceiptModel } from '../types';
 import { getBackend } from './backend';
+import { ensureQueueReady } from './availability';
+import { money, printHtml, printPdf, receiptHtml, testPageHtml } from './document.service';
+import type { DocumentRequest } from '../validation';
 
-function buildInterfaceString(config: PrinterConfig): string {
-  if (config.connectionType === 'network') {
-    return `tcp://${config.network.host}:${config.network.port}`;
-  }
-  const name = config.usb.systemPrinterName?.trim();
-  if (!name) {
-    throw new Error('No system printer name configured for USB printer');
-  }
-  return `printer:${name}`;
-}
+type Driver = InstanceType<typeof ThermalPrinter>;
 
-function buildDriver(config: PrinterConfig) {
+function buildDriver(profile: PrinterProfile): Driver {
+  const { connection } = profile;
   return new ThermalPrinter({
-    type: config.driver === 'star' ? PrinterTypes.STAR : PrinterTypes.EPSON,
-    interface: buildInterfaceString(config),
-    width: config.paperWidthChars,
+    type: profile.language === 'star' ? PrinterTypes.STAR : PrinterTypes.EPSON,
+    interface: connection.type === 'tcp' ? `tcp://${connection.host}:${connection.port}` : `printer:${connection.queueName}`,
+    width: profile.paperWidthChars,
     removeSpecialCharacters: false,
     options: { timeout: 5000 },
-    // USB jobs are sent by sendViaOs() below; the library only builds the bytes,
-    // but it insists on a driver object for `printer:` interfaces.
-    driver: config.connectionType === 'usb' ? {} : undefined,
+    // System-queue jobs are sent by sendRaw() below; the library only builds the
+    // bytes, but it insists on a driver object for `printer:` interfaces.
+    driver: connection.type === 'system' ? {} : undefined,
   });
 }
 
-function money(amountMinorUnits: number, currency: string): string {
-  return `${(amountMinorUnits / 100).toFixed(2)} ${currency}`;
-}
-
-function renderReceipt(driver: ReturnType<typeof buildDriver>, receipt: ReceiptModel): void {
+function renderReceipt(driver: Driver, receipt: ReceiptModel): void {
   driver.alignCenter();
   driver.bold(true);
   driver.println(receipt.businessName);
@@ -78,74 +69,68 @@ function renderReceipt(driver: ReturnType<typeof buildDriver>, receipt: ReceiptM
   driver.cut();
 }
 
+/** A device problem the cashier can act on (sent to the POS as HTTP 502). */
+export class PrinterError extends Error {}
+
 /** Turn library/OS errors into something a shop operator can act on. */
-function friendlyError(err: unknown, config: PrinterConfig): Error {
+export function friendlyError(err: unknown, profile: PrinterProfile): Error {
+  if (err instanceof PrinterError) return err;
   const raw = err instanceof Error ? err.message : String(err ?? '');
-  if (/disabled in settings/i.test(raw)) return new Error('No printer is set up yet. Open the bridge settings and pick a printer.');
-  if (/No system printer name/i.test(raw)) return new Error('No printer selected. Open the bridge settings and pick a printer.');
-  if (config.connectionType === 'network' && /ECONNREFUSED|EHOSTUNREACH|ETIMEDOUT|timeout|not reachable/i.test(raw)) {
-    return new Error(`Can't reach the printer at ${config.network.host}:${config.network.port}. Check it is on and on the same network.`);
+  const who = `“${profile.name}”`;
+  const { connection } = profile;
+  if (connection.type === 'tcp' && /ECONNREFUSED|EHOSTUNREACH|ETIMEDOUT|timeout|not reachable/i.test(raw)) {
+    return new PrinterError(`Can't reach ${who} at ${connection.host}:${connection.port}. Check it is on and on the same network.`);
   }
   if (/not reachable|NOT-AVAILABLE|false/i.test(raw) || raw === '') {
-    return new Error('The printer is not connected. Check the USB cable and that the printer is turned on.');
+    return new PrinterError(`${who} is not connected. Check the cable and that the printer is turned on.`);
   }
-  if (/paused/i.test(raw)) return new Error(raw);
+  if (/paused/i.test(raw)) return new PrinterError(`${who}: ${raw}`);
   if (/does not exist|Unknown destination|lp: |invalid printer name|1801/i.test(raw)) {
-    return new Error('The selected printer was removed from this computer. Open the bridge settings and pick it again.');
+    return new PrinterError(`${who} was removed from this computer. Open the bridge settings and add it again.`);
   }
-  return new Error(raw);
+  return new PrinterError(`${who}: ${raw}`);
 }
 
-/** Send through the OS print queue, but only when the printer is really there:
- * a job queued for an unplugged printer would print later as a surprise duplicate. */
-async function sendViaOs(queueName: string, data: Buffer, docName: string): Promise<void> {
-  const backend = getBackend();
-  const [queues, usb] = await Promise.all([backend.listQueues(), backend.listUsbDevices()]);
-  const queue = queues.find((q) => q.name === queueName);
-  if (!queue) throw new Error('Unknown destination');
-  if (queue.connection === 'usb' && !usb.some((d) => d.id === queue.usbDeviceId)) {
-    throw new Error('Printer not reachable');
+async function sendThermal(driver: Driver, profile: PrinterProfile, docName: string): Promise<void> {
+  const { connection } = profile;
+  if (connection.type === 'system') {
+    await ensureQueueReady(connection.queueName);
+    await getBackend().sendRaw(connection.queueName, driver.getBuffer(), docName);
+    return;
   }
-  if (!queue.enabled) {
-    throw new Error('Printing is paused on this computer. Open the bridge settings and click “Resume printing”.');
-  }
-  await backend.sendRaw(queueName, data, docName);
+  const connected = await driver.isPrinterConnected().catch(() => false);
+  if (!connected) throw new Error('Printer not reachable');
+  await driver.execute();
 }
 
-async function send(driver: ReturnType<typeof buildDriver>, config: PrinterConfig, docName = 'Receipt'): Promise<void> {
+/** Print a receipt on the named printer (or the default receipt printer).
+ * A4/A5 document printers get the same receipt laid out as a page. */
+export async function printReceipt(receipt: ReceiptModel, printerId?: string): Promise<PrinterProfile> {
+  const profile = resolvePrinter('receipt', printerId);
   try {
-    if (config.connectionType === 'usb') {
-      await sendViaOs(config.usb.systemPrinterName?.trim() ?? '', driver.getBuffer(), docName);
-      return;
+    if (profile.kind === 'document') {
+      await printHtml(profile, receiptHtml(receipt), { docName: `Receipt ${receipt.saleReference}` });
+    } else {
+      const driver = buildDriver(profile);
+      renderReceipt(driver, receipt);
+      await sendThermal(driver, profile, `Receipt ${receipt.saleReference}`);
     }
-    const connected = await driver.isPrinterConnected().catch(() => false);
-    if (!connected) throw new Error('Printer not reachable');
-    await driver.execute();
+    return profile;
   } catch (err) {
-    throw friendlyError(err, config);
+    throw friendlyError(err, profile);
   }
 }
 
-export async function printReceipt(receipt: ReceiptModel): Promise<void> {
-  const config = getConfig().printer;
+export async function printTestPage(printerId?: string): Promise<PrinterProfile> {
+  const profile = resolvePrinter('receipt', printerId);
   try {
-    if (!config.enabled) throw new Error('Printer is disabled in settings');
-    const driver = buildDriver(config);
-    renderReceipt(driver, receipt);
-    await send(driver, config);
-  } catch (err) {
-    throw friendlyError(err, config);
-  }
-}
-
-export async function printTestPage(): Promise<void> {
-  const config = getConfig().printer;
-  try {
-    const driver = buildDriver(config);
-    const where =
-      config.connectionType === 'network'
-        ? `${config.network.host}:${config.network.port}`
-        : config.usb.systemPrinterName ?? '';
+    if (profile.kind === 'document') {
+      await printHtml(profile, testPageHtml(profile), { docName: 'Test page' });
+      return profile;
+    }
+    const driver = buildDriver(profile);
+    const { connection } = profile;
+    const where = connection.type === 'tcp' ? `${connection.host}:${connection.port}` : connection.queueName;
     driver.alignCenter();
     driver.bold(true);
     driver.println('POS Hardware Bridge');
@@ -153,29 +138,35 @@ export async function printTestPage(): Promise<void> {
     driver.println('Test print OK');
     driver.drawLine();
     driver.alignLeft();
-    driver.println(`Printer: ${where}`);
-    driver.println(`Width: ${config.paperWidthChars} characters`);
+    driver.println(`Printer: ${profile.name}`);
+    driver.println(`API name: ${profile.id}`);
+    driver.println(`Connection: ${where}`);
+    driver.println(`Width: ${profile.paperWidthChars} characters`);
     driver.println(new Date().toLocaleString());
     // Ruler: the last digit should sit exactly at the right edge of the paper.
-    driver.println('1234567890'.repeat(Math.ceil(config.paperWidthChars / 10)).slice(0, config.paperWidthChars));
+    driver.println('1234567890'.repeat(Math.ceil(profile.paperWidthChars / 10)).slice(0, profile.paperWidthChars));
     driver.cut();
-    await send(driver, config, 'Test page');
+    await sendThermal(driver, profile, 'Test page');
+    return profile;
   } catch (err) {
-    throw friendlyError(err, config);
+    throw friendlyError(err, profile);
   }
 }
 
-export async function printRaw(escposBase64: string): Promise<void> {
-  const config = getConfig().printer;
+/** Print an HTML page or PDF on the named printer (or the default A4/document printer). */
+export async function printDocument(request: DocumentRequest): Promise<PrinterProfile> {
+  const profile = resolvePrinter('document', request.printer);
+  const options = {
+    docName: request.title?.trim() || 'Document',
+    paperSize: request.paperSize,
+    landscape: request.landscape,
+    copies: request.copies,
+  };
   try {
-    const driver = buildDriver(config);
-    const data = Buffer.from(escposBase64, 'base64');
-    if (config.connectionType === 'usb') {
-      await sendViaOs(config.usb.systemPrinterName?.trim() ?? '', data, 'Raw job');
-    } else {
-      await driver.raw(data);
-    }
+    if (request.pdfBase64) await printPdf(profile, Buffer.from(request.pdfBase64, 'base64'), options);
+    else await printHtml(profile, request.html as string, options);
+    return profile;
   } catch (err) {
-    throw friendlyError(err, config);
+    throw friendlyError(err, profile);
   }
 }

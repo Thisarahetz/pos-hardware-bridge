@@ -6,10 +6,9 @@ import { getConfig, updateConfig } from './config-store';
 import { applyLaunchAtLogin, startedAtLogin } from './autostart';
 import { log } from './logger';
 import { printTestPage } from './printer/printer.service';
-import type { DiscoveredPrinter } from './printer/discovery';
 import { refreshStatus, startStatusMonitor, statusEvents, stopStatusMonitor } from './status-monitor';
 import { trayIcon } from './tray-icon';
-import type { BridgeStatus, DeviceStatus, StatusLevel } from './types';
+import type { BridgeStatus, DeviceStatus, PrinterProfile, StatusLevel } from './types';
 
 let tray: Tray | null = null;
 let settingsWindow: BrowserWindow | null = null;
@@ -77,11 +76,19 @@ function notify(title: string, body: string): void {
 }
 
 function overallLevel(status: BridgeStatus): StatusLevel {
-  const levels = [status.printer.level, status.terminal.level];
+  const levels = [status.printer.level, ...status.printers.map((p) => p.level), status.terminal.level];
   if (levels.includes('error')) return 'error';
   if (levels.includes('warning')) return 'warning';
   if (levels.includes('ok')) return 'ok';
   return 'off';
+}
+
+async function testPrint(id: string): Promise<void> {
+  try {
+    await printTestPage(id);
+  } catch (err) {
+    notify('Test print failed', err instanceof Error ? err.message : String(err));
+  }
 }
 
 function deviceLine(name: string, s: DeviceStatus): string {
@@ -101,27 +108,30 @@ function rebuildTray(status: BridgeStatus | null = lastStatus): void {
     { type: 'separator' },
   ];
   if (status) {
-    items.push(
-      { label: deviceLine('Printer', status.printer), click: showSettingsWindow },
-      ...(status.printer.detail ? [{ label: `      ${status.printer.detail}`, enabled: false }] : []),
-      { label: deviceLine('Card terminal', status.terminal), click: showSettingsWindow },
-    );
+    if (status.printers.length === 0) {
+      items.push({ label: deviceLine('Printer', status.printer), click: showSettingsWindow });
+    }
+    for (const p of status.printers) {
+      items.push({
+        label: deviceLine(p.name, p),
+        submenu: [
+          { label: p.detail, enabled: false },
+          { label: `API name: ${p.id}`, enabled: false },
+          { type: 'separator' },
+          {
+            label: 'Print test page',
+            enabled: p.level === 'ok' || p.level === 'warning',
+            click: () => void testPrint(p.id),
+          },
+        ],
+      });
+    }
+    items.push({ label: deviceLine('Card terminal', status.terminal), click: showSettingsWindow });
   } else {
     items.push({ label: 'Checking devices…', enabled: false });
   }
   items.push(
     { type: 'separator' },
-    {
-      label: 'Print test page',
-      enabled: status?.printer.level === 'ok' || status?.printer.level === 'warning',
-      click: async () => {
-        try {
-          await printTestPage();
-        } catch (err) {
-          notify('Test print failed', err instanceof Error ? err.message : String(err));
-        }
-      },
-    },
     { label: 'Open settings…', click: showSettingsWindow },
     { label: 'Copy API token', click: () => clipboard.writeText(getConfig().server.authToken) },
     {
@@ -169,25 +179,31 @@ function watchStatus(): void {
       firstCheck = false;
       if (!launchedHidden) {
         // Opened by hand: only show the window when something needs attention.
-        if (status.printer.level !== 'ok') showSettingsWindow();
+        if (overallLevel(status) !== 'ok' || status.printers.length === 0) showSettingsWindow();
       } else {
         // Started with the computer: the printer may still be warming up, so
         // give it a moment before warning anyone.
         setTimeout(() => {
-          const p = lastStatus?.printer;
-          if (p && (p.level === 'error' || p.level === 'off')) notify(`POS printer: ${p.title}`, p.steps[0] ?? p.detail);
+          const s = lastStatus;
+          if (!s) return;
+          if (s.printers.length === 0) notify(`POS printer: ${s.printer.title}`, s.printer.steps[0] ?? s.printer.detail);
+          for (const p of s.printers) {
+            if (p.level === 'error') notify(`${p.name}: ${p.title}`, p.steps[0] ?? p.detail);
+          }
         }, 30000);
       }
       return;
     }
-    const was = previous?.printer.level;
-    const now = status.printer.level;
-    if (was === 'ok' && now === 'error') notify(status.printer.title, status.printer.detail);
-    if (was && was !== 'ok' && now === 'ok') notify('Printer ready', status.printer.detail);
+    // Tell the cashier when any printer drops out or comes back.
+    for (const p of status.printers) {
+      const was = previous?.printers.find((x) => x.id === p.id)?.level;
+      if (was === 'ok' && p.level === 'error') notify(`${p.name}: ${p.title}`, p.detail);
+      if (was && was !== 'ok' && p.level === 'ok') notify(`${p.name} ready`, p.detail);
+    }
   });
 
-  statusEvents.on('auto-setup', (printer: DiscoveredPrinter) => {
-    const message = `Found “${printer.label}” and set it up as the receipt printer.`;
+  statusEvents.on('auto-setup', (printer: PrinterProfile) => {
+    const message = `Found a receipt printer and set it up as “${printer.name}”.`;
     notify('Printer connected', message);
     sendToWindow('notice', message);
   });

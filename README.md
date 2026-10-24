@@ -1,11 +1,14 @@
 # POS Hardware Bridge
 
 A small tray app that lets any browser-based POS (GlowDesk, SmartPOS,
-Restaurant POS, …) print receipts and take card payments on the computer it
-runs on. Browsers can't talk to USB printers or serial card terminals
+Restaurant POS, …) print receipts, print A4/A5 invoices and take card
+payments on the computer it runs on. Browsers can't talk to USB printers or serial card terminals
 directly, so the POS sends simple HTTP requests to this bridge on
 `http://127.0.0.1:9191`, and the bridge drives the hardware.
 
+- **Many printers on one computer** – thermal receipt printers (front
+  counter, kitchen…) and office A4/A5 printers for invoices, side by side.
+  The POS picks one by name, such as `"receipt"`, `"kitchen"` or `"invoice"`.
 - **Plug and play** – a USB receipt printer is detected and set up
   automatically; network printers can be found with one click.
 - **Clear status** – the tray icon and settings window show whether the
@@ -53,12 +56,23 @@ not stop it. To turn auto-start off: tray icon → untick **Start with computer*
      next to it and choose **Yes** on the Windows permission prompt (once only).
    - Network printer? Click **Scan network**, or enter its IP under
      *Network printer by IP address* (port is usually `9100`).
-2. Click **Print test page**. The number line at the bottom should reach the
-   right edge of the paper. If not, change **Paper size** (58 mm / 80 mm).
-3. *(Optional)* Card terminal: tick **Use a card terminal**, pick its port,
+2. Click **Test print** on the printer. The number line at the bottom should reach the
+   right edge of the paper. If not, open **Settings** and change **Paper size** (58 mm / 80 mm).
+3. **A4 printer for invoices (optional):** first install it the normal way
+   (Windows: *Settings → Printers & scanners*; macOS: *System Settings →
+   Printers & Scanners*). Then in the bridge, under **Add a printer**, click
+   **Add as A4 printer** next to it, and use **Test print** to print a sample invoice.
+4. **More receipt printers (optional)**, e.g. a kitchen printer: plug it in and click
+   **Add as receipt printer**. Open its **Settings** to give it a clear name and API name
+   (for example `kitchen`).
+5. *(Optional)* Card terminal: tick **Use a card terminal**, pick its port,
    and click **Test $1.00 charge**.
-4. Under **Connect your POS**, copy the **Bridge address** and **Access token**
+6. Under **Connect your POS**, copy the **Bridge address** and **Access token**
    into your POS settings.
+
+Each printer has an **API name** (shown on its card). The POS uses it to choose
+the printer. The first printer of each type is the **default** for that type;
+use **Make default** in a printer's settings to change it.
 
 ### What the status colours mean
 
@@ -143,8 +157,10 @@ units** (cents): `12.50` is sent as `1250`.
 | --- | --- | --- | --- |
 | `GET` | `/health` | – | Is the bridge running? Are devices ready? |
 | `GET` | `/status` | ✔ | Plain-language device status to show the cashier |
-| `POST` | `/print/receipt` | ✔ | Print a receipt |
-| `POST` | `/print/test` | ✔ | Print the test page |
+| `GET` | `/printers` | ✔ | All configured printers with their API names and status |
+| `POST` | `/print/receipt` | ✔ | Print a receipt (thermal, or laid out on A4) |
+| `POST` | `/print/document` | ✔ | Print an A4/A5 invoice or document (HTML or PDF) |
+| `POST` | `/print/test` | ✔ | Print a test page (`{"printer":"…"}` optional) |
 | `POST` | `/terminal/charge` | ✔ | Take a card payment |
 | `POST` | `/terminal/cancel` | ✔ | Cancel a payment in progress |
 | `GET` | `/terminal/status` | ✔ | `{ "connected": boolean }` |
@@ -153,16 +169,44 @@ units** (cents): `12.50` is sent as `1250`.
 ### `GET /health`
 
 ```json
-{ "ok": true, "printer": true, "terminal": false, "printerReady": true, "terminalReady": false }
+{
+  "ok": true, "printer": true, "terminal": false, "printerReady": true, "terminalReady": false,
+  "printers": [
+    { "id": "receipt", "kind": "receipt", "ready": true },
+    { "id": "invoice", "kind": "document", "ready": true }
+  ]
+}
 ```
 
-`printer` / `terminal` say whether each device is turned on in settings;
-`printerReady` / `terminalReady` say whether it's actually connected and working.
+`printer` says whether any printer is set up, and `printerReady` whether the
+default receipt printer is ready. `printers` lists every printer.
+
+### `GET /printers`
+
+```json
+[
+  {
+    "id": "receipt", "name": "Front counter", "kind": "receipt", "isDefault": true,
+    "paperWidthChars": 42, "ready": true,
+    "status": { "level": "ok", "title": "Ready", "detail": "EPSON TM-T20 (USB)", "steps": [] }
+  },
+  {
+    "id": "invoice", "name": "Office A4", "kind": "document", "isDefault": true,
+    "paperSize": "A4", "ready": false,
+    "status": { "level": "error", "title": "Printer disconnected", "detail": "HP LaserJet is unplugged or turned off.", "steps": ["Check the USB cable at both ends."] }
+  }
+]
+```
+
+`kind` is `receipt` (thermal) or `document` (A4/A5).
 
 ### `GET /status`
 
 ```json
 {
+  "printers": [
+    { "id": "receipt", "name": "Front counter", "kind": "receipt", "level": "ok", "title": "Ready", "detail": "EPSON TM-T20 (USB)", "steps": [] }
+  ],
   "printer": {
     "level": "error",
     "title": "Printer disconnected",
@@ -175,13 +219,15 @@ units** (cents): `12.50` is sent as `1250`.
 }
 ```
 
-`level` is `ok`, `warning`, `error` or `off`. `title`, `detail` and `steps`
+`printers` has one entry per printer. `printer` summarises the default receipt
+printer (kept for older integrations). `level` is `ok`, `warning`, `error` or `off`. `title`, `detail` and `steps`
 are written for cashiers, so you can show them as they are.
 
 ### `POST /print/receipt`
 
 | Field | Type | Required | Notes |
 | --- | --- | --- | --- |
+| `printer` | string | | API name, e.g. `"kitchen"`. Defaults to the default receipt printer |
 | `businessName` | string | ✔ | Printed bold at the top |
 | `locationName` | string | | Second header line |
 | `saleReference` | string | ✔ | Your sale/order number |
@@ -200,6 +246,52 @@ are written for cashiers, so you can show them as they are.
 
 The bridge prints the totals you send and does no maths of its own, so
 calculate them in the POS.
+
+Sending a receipt to an A4 printer (`"printer": "invoice"`) prints the same
+data laid out as a page with an item table and totals. That's a quick way
+to get A4 invoices without writing any HTML.
+
+Response: `{ "ok": true, "printer": "receipt" }`, naming the printer that was used.
+
+### `POST /print/document`
+
+Prints a page on an A4/A5 printer through its normal driver. Send **either**
+`html` **or** `pdfBase64`.
+
+| Field | Type | Required | Notes |
+| --- | --- | --- | --- |
+| `printer` | string | | API name, e.g. `"invoice"`. Defaults to the default document printer |
+| `html` | string | one of | A complete HTML page (see tips below) |
+| `pdfBase64` | string | one of | A PDF file, base64-encoded. macOS/Linux only for now; on Windows send HTML |
+| `paperSize` | string | | `A4`, `A5`, `Letter` or `Legal`. Defaults to the printer's setting |
+| `landscape` | boolean | | Default `false` |
+| `copies` | integer 1–20 | | Default `1` |
+| `title` | string | | Job name shown in the printer queue, e.g. `"Invoice INV-1042"` |
+
+```js
+await fetch(`${BRIDGE_URL}/print/document`, {
+  method: 'POST',
+  headers: { Authorization: `Bearer ${BRIDGE_TOKEN}`, 'Content-Type': 'application/json' },
+  body: JSON.stringify({
+    printer: 'invoice',
+    paperSize: 'A4',
+    title: 'Invoice INV-1042',
+    html: `<!doctype html><html><head><meta charset="utf-8"><style>
+             @page { margin: 15mm; } body { font-family: Arial, sans-serif; }
+           </style></head><body><h1>Invoice INV-1042</h1>…</body></html>`,
+  }),
+});
+```
+
+**Tips for invoice HTML**
+
+- Send **one self-contained page**: put CSS in a `<style>` tag, and embed
+  logos as `data:` image URLs so nothing has to download.
+- **JavaScript is turned off.** Render the final HTML in your POS (template
+  engine, React `renderToString`, …) before sending it.
+- Set margins with `@page { margin: 15mm; }`. Use `page-break-inside: avoid`
+  on table rows so long invoices break cleanly across pages.
+- Test with **Test print** in the bridge first, then with a real invoice.
 
 ### `POST /terminal/charge`
 
@@ -241,6 +333,7 @@ Errors always come back as JSON with an `error` message:
 | --- | --- | --- |
 | `400` | The request is wrong; `details` lists every problem | `{"error":"Invalid receipt","details":["\"currency\" must be a 3-letter code such as \"USD\" or \"LKR\""]}` |
 | `401` | Missing or wrong token | `{"error":"unauthorized"}` |
+| `404` | No printer with that API name | `{"error":"No printer named \"kitchen\". Available printers: \"receipt\", \"invoice\"."}` |
 | `502` | The device failed; the message is written for the cashier | `{"error":"The printer is not connected. Check the USB cable and that the printer is turned on."}` |
 
 ---
@@ -298,6 +391,18 @@ Errors always come back as JSON with an `error` message:
 15. **`502`** → show `error` to the cashier as it is. It already says what to
     do.
 
+**Several printers**
+
+16. **Make the printer names settings too.** Let the shop choose which API
+    name to use for receipts, kitchen tickets and invoices (load the choices
+    from `GET /printers`), instead of hard-coding them.
+17. **Leave out `printer` for the everyday case.** Receipts go to the default
+    receipt printer and documents to the default document printer, so the
+    shop can swap printers in the bridge without changing the POS.
+18. **Print to each printer independently.** If the kitchen printer fails, the
+    customer's receipt should still print. Send separate requests and report
+    each result on its own.
+
 **POS served from a website (`https://…`)**
 
 Chrome and Edge allow an `https://` page to call `http://127.0.0.1`, and the
@@ -315,7 +420,9 @@ or PWA build.
 | *Printer disconnected* | Check the USB cable and power, and close the paper cover. The status updates within about 4 seconds. |
 | *Printing is paused* | Click **Resume printing** in settings. |
 | *N receipts waiting* | Turn the printer off and on. If old receipts shouldn't print, click **Clear waiting jobs**. |
-| Blank paper or strange characters | Change **Printer language** (ESC/POS vs Star). |
+| Blank paper or strange characters | Change **Printer language** (ESC/POS vs Star). If an A4 printer was added as a receipt printer by mistake, change **Used for** to *A4 / A5* in its settings. |
+| A4 printer not listed under *Add a printer* | Install it in the computer's printer settings first, then click **Search again**. |
+| *No printer named "…"* | The POS uses an API name that doesn't exist. Check the names on the printer cards, or under `GET /printers`. |
 | Text cut off or too narrow | Change **Paper size**, then print a test page. |
 | POS says *unauthorized* | Copy the access token from settings into the POS again. |
 | *API stopped – port in use* | Another program uses port 9191. The bridge keeps retrying. Close that program, or change the port under Developer details and update the POS. |
@@ -365,15 +472,20 @@ src/main/
     discovery.ts        Find USB/network printers
     setup.ts            Install and select printers, auto-setup
     printer.service.ts  Builds ESC/POS receipts (node-thermal-printer) and sends them
+    document.service.ts A4/A5 pages: HTML → PDF → CUPS (macOS/Linux), silent print via the driver (Windows)
   terminal/             Serial card-terminal driver
 src/renderer/settings/  Settings window
 ```
 
-Receipts are sent as raw ESC/POS bytes through the OS print queue rather
-than by claiming the USB device directly. That avoids driver and permission
+Thermal receipts are sent as raw ESC/POS bytes through the OS print queue
+rather than by claiming the USB device directly. That avoids driver and permission
 problems and works the same on every OS. Before sending, the bridge checks
 the printer is really connected, so a receipt is never queued for an
 unplugged printer and then printed unexpectedly later.
+
+A4/A5 documents are rendered by Chromium in a hidden window with scripts
+turned off. On macOS/Linux the page is turned into a PDF and handed to CUPS.
+On Windows it's printed silently through the printer's own driver.
 
 ### Payment terminal protocol
 

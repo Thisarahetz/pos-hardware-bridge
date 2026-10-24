@@ -1,5 +1,5 @@
 import { contextBridge, ipcRenderer, type IpcRendererEvent } from 'electron';
-import type { BridgeConfig, BridgeStatus } from '../main/types';
+import type { BridgeConfig, BridgeStatus, PrinterKind, PrinterProfile } from '../main/types';
 import type { ConfigPatch } from '../main/config-store';
 import type { DiscoveredPrinter } from '../main/printer/discovery';
 
@@ -26,14 +26,18 @@ contextBridge.exposeInMainWorld('bridge', {
 
   discoverPrinters: (): Promise<Result<DiscoveredPrinter[]>> => ipcRenderer.invoke('printers:discover'),
   scanNetwork: (): Promise<Result<DiscoveredPrinter[]>> => ipcRenderer.invoke('printers:scan-network'),
-  usePrinter: (printer: DiscoveredPrinter): Promise<Result<BridgeStatus>> => ipcRenderer.invoke('printers:use', printer),
-  turnOffPrinter: (): Promise<Result<BridgeStatus>> => ipcRenderer.invoke('printer:turn-off'),
-  fixPrinter: (action: 'resume-queue' | 'clear-queue'): Promise<Result<BridgeStatus>> =>
-    ipcRenderer.invoke('printer:fix', action),
+  addPrinter: (printer: DiscoveredPrinter, options: { kind: PrinterKind; name?: string; id?: string }): Promise<Result<PrinterProfile>> =>
+    ipcRenderer.invoke('printers:add', printer, options),
+  updatePrinter: (id: string, patch: Partial<PrinterProfile>): Promise<Result<BridgeConfig>> =>
+    ipcRenderer.invoke('printers:update', id, patch),
+  removePrinter: (id: string): Promise<Result<BridgeConfig>> => ipcRenderer.invoke('printers:remove', id),
+  makeDefaultPrinter: (id: string): Promise<Result<BridgeConfig>> => ipcRenderer.invoke('printers:make-default', id),
+  fixPrinter: (id: string, action: 'resume-queue' | 'clear-queue'): Promise<Result<BridgeStatus>> =>
+    ipcRenderer.invoke('printers:fix', id, action),
 
   listSerialPorts: (includeSystemPorts?: boolean): Promise<Array<{ path: string; label: string }>> =>
     ipcRenderer.invoke('devices:list-serial-ports', includeSystemPorts),
 
-  testPrint: (): Promise<Result> => ipcRenderer.invoke('test:print'),
+  testPrint: (id?: string): Promise<Result> => ipcRenderer.invoke('test:print', id),
   testTerminalCharge: (): Promise<Result> => ipcRenderer.invoke('test:terminal-charge'),
 });

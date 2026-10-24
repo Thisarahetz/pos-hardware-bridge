@@ -16,73 +16,37 @@
   </header>
   <div id="apiError" class="banner" hidden></div>
 
-  <!-- Printer status -->
-  <section class="card status-card" id="printerStatusCard" data-level="off">
-    <div class="status-head">
-      <span class="dot" aria-hidden="true"></span>
-      <div class="status-text">
-        <div class="eyebrow">Receipt printer</div>
-        <h2 id="printerTitle">Checking…</h2>
-        <p id="printerDetail" class="muted"></p>
-      </div>
-      <div class="status-actions">
-        <button id="testPrint" class="primary">Print test page</button>
-      </div>
-    </div>
-    <div id="printerSteps" class="steps" hidden>
-      <div class="steps-title">What to do</div>
-      <ol id="printerStepsList"></ol>
-      <div class="row" id="printerFixRow"></div>
-    </div>
-    <p id="printResult" class="result" role="status"></p>
-  </section>
-
-  <!-- Printer picker -->
+  <!-- Configured printers -->
   <section class="card">
     <div class="card-head">
-      <h3>Printers found</h3>
+      <h3>Your printers</h3>
+      <span class="muted small" id="printerCount"></span>
+    </div>
+    <div id="printerCards" class="printer-cards"></div>
+  </section>
+
+  <!-- Add a printer -->
+  <section class="card">
+    <div class="card-head">
+      <h3>Add a printer</h3>
       <div class="row tight">
         <button id="refreshPrinters" class="ghost">Search again</button>
         <button id="scanNetwork" class="ghost">Scan network</button>
       </div>
     </div>
+    <p class="muted small">Use thermal printers for receipts and kitchen tickets, and an office printer for A4/A5 invoices. Add as many as you need.</p>
     <ul id="printerList" class="device-list">
       <li class="empty">Looking for printers…</li>
     </ul>
 
     <details class="advanced">
-      <summary>Network printer by IP address</summary>
+      <summary>Network receipt printer by IP address</summary>
       <div class="grid2">
         <label>IP address <input id="printerHost" type="text" placeholder="192.168.1.100" inputmode="decimal" /></label>
-        <label>Port <input id="printerPort" type="number" placeholder="9100" /></label>
+        <label>Port <input id="printerPort" type="number" placeholder="9100" value="9100" /></label>
       </div>
-      <button id="useNetworkPrinter">Use this address</button>
+      <button id="useNetworkPrinter">Add receipt printer</button>
     </details>
-
-    <div class="options">
-      <div class="option">
-        <div>
-          <div class="option-label">Paper size</div>
-          <div class="muted small">Run a test print — the number line should reach the right edge.</div>
-        </div>
-        <div class="segmented" id="paperWidth">
-          <button data-value="32">58 mm</button>
-          <button data-value="42">80 mm</button>
-          <button data-value="48">80 mm (wide)</button>
-        </div>
-      </div>
-      <div class="option">
-        <div>
-          <div class="option-label">Printer language</div>
-          <div class="muted small">Most printers use ESC/POS. Choose Star only for Star Micronics printers.</div>
-        </div>
-        <div class="segmented" id="printerDriver">
-          <button data-value="epson">ESC/POS</button>
-          <button data-value="star">Star</button>
-        </div>
-      </div>
-    </div>
-    <button id="turnOffPrinter" class="link danger">Stop using a printer</button>
   </section>
 
   <!-- Card terminal -->
@@ -161,6 +125,13 @@
         <div class="muted small">Opens quietly in the tray when the computer starts, so receipts always print.</div>
       </div>
       <label class="switch"><input id="launchAtLogin" type="checkbox" /> <span>On</span></label>
+    </div>
+    <div class="option spaced">
+      <div>
+        <div class="option-label">Set up receipt printers automatically</div>
+        <div class="muted small">When no receipt printer is added yet, a plugged-in one is added on its own.</div>
+      </div>
+      <label class="switch"><input id="autoDetectPrinters" type="checkbox" /> <span>On</span></label>
     </div>
     <p class="muted small spaced">Closing this window keeps the bridge running in the tray. <button id="openLogs" class="link">Open log folder</button></p>
   </section>

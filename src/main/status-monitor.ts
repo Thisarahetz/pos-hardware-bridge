@@ -6,7 +6,7 @@ import { log } from './logger';
 import { serverState } from './server';
 import { autoSetupPrinter } from './printer/setup';
 import { listSerialPorts } from './terminal/terminal.service';
-import type { BridgeStatus, DeviceStatus } from './types';
+import type { BridgeStatus, DeviceStatus, PrinterProfile, PrinterStatus } from './types';
 
 const POLL_MS = 4000;
 
@@ -16,27 +16,34 @@ let current: BridgeStatus | null = null;
 let timer: NodeJS.Timeout | null = null;
 let checking: Promise<BridgeStatus> | null = null;
 
-async function printerStatus(): Promise<DeviceStatus> {
-  const config = getConfig().printer;
+const NO_PRINTER: DeviceStatus = {
+  level: 'off',
+  title: 'No printer set up',
+  detail: 'Receipts will not print until a printer is added.',
+  steps: [
+    'Plug the receipt printer into this computer with USB and turn it on. It is set up automatically.',
+    'For an A4 printer or a second printer, pick it under “Add a printer”.',
+    'For a network receipt printer, connect it to the same Wi-Fi/LAN and click “Scan network”.',
+  ],
+  action: 'setup-printer',
+};
 
-  if (!config.enabled) {
-    return {
-      level: 'off',
-      title: 'No printer set up',
-      detail: 'Receipts will not print until a printer is chosen.',
-      steps: [
-        'Plug the receipt printer into this computer with USB and turn it on. It is set up automatically.',
-        'For a network printer, connect it to the same Wi-Fi/LAN and click “Scan network”.',
-      ],
-      action: 'setup-printer',
-    };
-  }
+type DeviceSnapshot = Awaited<ReturnType<typeof loadDevices>>;
 
-  if (config.connectionType === 'network') {
-    const { host, port } = config.network;
+async function loadDevices() {
+  const backend = getBackend();
+  const [queues, usb] = await Promise.all([backend.listQueues(), backend.listUsbDevices()]);
+  return { backend, queues, usb };
+}
+
+async function printerStatus(profile: PrinterProfile, devices: DeviceSnapshot): Promise<DeviceStatus> {
+  const { connection } = profile;
+
+  if (connection.type === 'tcp') {
+    const { host, port } = connection;
     const reachable = await probeTcp(host, port);
     return reachable
-      ? { level: 'ok', title: 'Printer ready', detail: `Network printer at ${host}:${port}`, steps: [] }
+      ? { level: 'ok', title: 'Ready', detail: `Network printer at ${host}:${port}`, steps: [] }
       : {
           level: 'error',
           title: 'Can’t reach the network printer',
@@ -46,44 +53,30 @@ async function printerStatus(): Promise<DeviceStatus> {
             'Make sure this computer and the printer are on the same network.',
             'Print the printer’s self-test page (hold FEED while powering on) to confirm its IP address.',
           ],
-          action: 'setup-printer',
         };
   }
 
-  const name = config.usb.systemPrinterName?.trim();
-  if (!name) {
-    return {
-      level: 'error',
-      title: 'No printer selected',
-      detail: 'Choose a printer from the list below.',
-      steps: ['Plug in the printer and pick it from “Printers found”.'],
-      action: 'setup-printer',
-    };
-  }
-
-  const backend = getBackend();
-  const [queues, usb] = await Promise.all([backend.listQueues(), backend.listUsbDevices()]);
+  const { backend, queues, usb } = devices;
+  const name = connection.queueName;
   const queue = queues.find((q) => q.name === name);
   if (!queue) {
     return {
       level: 'error',
       title: 'Printer was removed from the system',
       detail: `“${name}” no longer exists in the computer’s printer list.`,
-      steps: ['Plug the printer in and pick it again from “Printers found”.'],
-      action: 'setup-printer',
+      steps: ['Plug the printer in, then remove this printer here and add it again.'],
     };
   }
 
-  const label = queue.label;
   if (queue.connection === 'usb' && !usb.some((d) => d.id === queue.usbDeviceId)) {
     return {
       level: 'error',
       title: 'Printer disconnected',
-      detail: `${label} is unplugged or turned off.`,
+      detail: `${queue.label} is unplugged or turned off.`,
       steps: [
         'Check the USB cable at both ends.',
         'Turn the printer on and wait for the light to stop blinking.',
-        'Close the paper cover and make sure it has paper.',
+        profile.kind === 'receipt' ? 'Close the paper cover and make sure it has paper.' : 'Make sure it has paper and no error light.',
       ],
     };
   }
@@ -102,19 +95,40 @@ async function printerStatus(): Promise<DeviceStatus> {
   if (waiting >= 3) {
     return {
       level: 'warning',
-      title: `${waiting} receipts waiting`,
+      title: `${waiting} jobs waiting`,
       detail: 'Jobs are queuing up instead of printing.',
       steps: [
-        'Check the printer has paper and the cover is closed.',
+        'Check the printer has paper and no error light.',
         'Turn the printer off and on again.',
-        'If old receipts should not print, click “Clear waiting jobs”.',
+        'If old jobs should not print, click “Clear waiting jobs”.',
       ],
       action: 'clear-queue',
     };
   }
 
-  const via = queue.connection === 'usb' ? 'USB' : queue.connection === 'network' ? 'network' : 'system printer';
-  return { level: 'ok', title: 'Printer ready', detail: `${label} (${via})`, steps: [] };
+  const via = queue.connection === 'usb' ? 'USB' : queue.connection === 'network' ? 'network' : 'installed printer';
+  return { level: 'ok', title: 'Ready', detail: `${queue.label} (${via})`, steps: [] };
+}
+
+async function allPrinterStatuses(): Promise<PrinterStatus[]> {
+  const { printers } = getConfig();
+  if (printers.length === 0) return [];
+  const needsDevices = printers.some((p) => p.connection.type === 'system');
+  const devices = needsDevices ? await loadDevices() : ({ backend: getBackend(), queues: [], usb: [] } as DeviceSnapshot);
+  return Promise.all(
+    printers.map(async (p) => {
+      const status = await printerStatus(p, devices).catch((err) => checkFailed(`printer “${p.name}”`, err));
+      return { ...status, id: p.id, name: p.name, kind: p.kind };
+    }),
+  );
+}
+
+/** One-line summary of the default receipt printer, for the tray and older POS integrations. */
+function summary(printers: PrinterStatus[]): DeviceStatus {
+  const main = printers.find((p) => p.kind === 'receipt') ?? printers[0];
+  if (!main) return NO_PRINTER;
+  const { id: _id, name, kind: _kind, ...status } = main;
+  return { ...status, title: status.level === 'ok' ? 'Printer ready' : status.title, detail: `${name}: ${status.detail}` };
 }
 
 async function terminalStatus(): Promise<DeviceStatus> {
@@ -161,13 +175,14 @@ async function check(): Promise<BridgeStatus> {
     statusEvents.emit('auto-setup-failed', err instanceof Error ? err.message : String(err));
   }
 
-  const [printer, terminal] = await Promise.all([
-    printerStatus().catch((err) => checkFailed('printer', err)),
+  const [printers, terminal] = await Promise.all([
+    allPrinterStatuses().catch((err) => [{ ...checkFailed('printers', err), id: '', name: 'Printers', kind: 'receipt' as const }]),
     terminalStatus().catch((err) => checkFailed('card terminal', err)),
   ]);
   const server = serverState();
   const next: BridgeStatus = {
-    printer,
+    printers,
+    printer: summary(printers),
     terminal,
     api: { url: `http://127.0.0.1:${getConfig().server.port}`, running: server.running, error: server.error },
     checkedAt: new Date().toISOString(),

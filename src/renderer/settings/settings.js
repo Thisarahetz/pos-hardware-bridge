@@ -56,6 +56,8 @@ async function saveConfig(patch, message = 'Saved') {
 
 // ---------- status ----------
 
+let lastStatus = null;
+
 function renderSteps(listId, wrapId, steps) {
   const list = $(listId);
   list.replaceChildren(...steps.map((s) => el('li', {}, s)));
@@ -63,20 +65,8 @@ function renderSteps(listId, wrapId, steps) {
 }
 
 function renderStatus(status) {
-  const p = status.printer;
-  $('printerStatusCard').dataset.level = p.level;
-  $('printerTitle').textContent = p.title;
-  $('printerDetail').textContent = p.detail;
-  renderSteps('printerStepsList', 'printerSteps', p.steps);
-  $('testPrint').disabled = p.level === 'off' || p.level === 'error';
-
-  const fixRow = $('printerFixRow');
-  fixRow.replaceChildren();
-  if (p.action === 'resume-queue') {
-    fixRow.append(el('button', { class: 'primary', onclick: (e) => fix(e.target, 'resume-queue') }, 'Resume printing'));
-  } else if (p.action === 'clear-queue') {
-    fixRow.append(el('button', { onclick: (e) => fix(e.target, 'clear-queue') }, 'Clear waiting jobs'));
-  }
+  lastStatus = status;
+  renderPrinterCards();
 
   const t = status.terminal;
   $('terminalStatusCard').dataset.level = t.level;
@@ -95,75 +85,251 @@ function renderStatus(status) {
   void loadPrinters();
 }
 
-async function fix(button, action) {
-  const res = await busy(button, 'Working…', () => api.fixPrinter(action));
+// ---------- your printers ----------
+
+const KIND_LABEL = { receipt: 'Receipt', document: 'A4 / A5 documents' };
+const RECEIPT_WIDTHS = [
+  ['32', '58 mm'],
+  ['42', '80 mm'],
+  ['48', '80 mm (wide)'],
+];
+const PAPER_SIZES = ['A4', 'A5', 'Letter', 'Legal'];
+const openSettings = new Set();
+let renderPending = false;
+
+function segmented(options, current, onPick) {
+  return el(
+    'div',
+    { class: 'segmented' },
+    ...options.map(([value, label]) =>
+      el('button', { class: String(current) === value ? 'active' : '', onclick: () => onPick(value) }, label),
+    ),
+  );
+}
+
+function option(label, hint, control) {
+  return el('div', { class: 'option' }, el('div', {}, el('div', { class: 'option-label' }, label), hint ? el('div', { class: 'muted small' }, hint) : null), control);
+}
+
+async function changePrinter(id, patch, message = 'Saved') {
+  const res = await api.updatePrinter(id, patch);
+  if (!res.ok) return toast(res.error);
+  config = res.value;
+  if (patch.id && patch.id !== id) {
+    openSettings.delete(id);
+    openSettings.add(patch.id);
+  }
+  renderConfig();
+  toast(message);
+}
+
+function printerSettings(p, isDefault) {
+  const nameInput = el('input', { type: 'text', value: p.name });
+  nameInput.addEventListener('change', () => nameInput.value.trim() && changePrinter(p.id, { name: nameInput.value.trim() }, 'Name saved'));
+  const idInput = el('input', { type: 'text', value: p.id, spellcheck: 'false' });
+  idInput.addEventListener('change', () => {
+    if (!idInput.value.trim() || idInput.value.trim() === p.id) return;
+    if (confirm(`Change the API name to "${idInput.value.trim()}"? POS apps that use "${p.id}" must be updated.`)) {
+      changePrinter(p.id, { id: idInput.value.trim() }, 'API name changed');
+    } else idInput.value = p.id;
+  });
+
+  const rows = [
+    el('div', { class: 'grid2' }, el('label', {}, 'Name', nameInput), el('label', {}, 'API name (used by the POS)', idInput)),
+  ];
+  if (p.kind === 'receipt') {
+    rows.push(
+      option('Paper size', 'Run a test print — the number line should reach the right edge.', segmented(RECEIPT_WIDTHS, p.paperWidthChars, (v) => changePrinter(p.id, { paperWidthChars: Number(v) }, 'Paper size saved'))),
+      option('Printer language', 'Most printers use ESC/POS. Choose Star only for Star Micronics printers.', segmented([['epson', 'ESC/POS'], ['star', 'Star']], p.language, (v) => changePrinter(p.id, { language: v }, 'Printer language saved'))),
+    );
+  } else {
+    rows.push(option('Paper size', 'Used when the POS doesn’t ask for a size.', segmented(PAPER_SIZES.map((x) => [x, x]), p.paperSize, (v) => changePrinter(p.id, { paperSize: v }, 'Paper size saved'))));
+  }
+  if (p.connection.type === 'system') {
+    rows.push(
+      option(
+        'Used for',
+        'Receipt = fast thermal printing. A4/A5 = invoices and documents through the normal printer driver.',
+        segmented([['receipt', 'Receipts'], ['document', 'A4 / A5']], p.kind, (v) => changePrinter(p.id, { kind: v }, 'Printer type changed')),
+      ),
+    );
+  }
+  rows.push(
+    el(
+      'div',
+      { class: 'row spaced' },
+      isDefault
+        ? el('span', { class: 'muted small' }, `Default ${p.kind === 'receipt' ? 'receipt' : 'document'} printer`)
+        : el('button', { onclick: async () => {
+            const res = await api.makeDefaultPrinter(p.id);
+            if (!res.ok) return toast(res.error);
+            config = res.value;
+            renderConfig();
+            toast(`${p.name} is now the default`);
+          } }, 'Make default'),
+      el('span', { class: 'grow' }),
+      el('button', { class: 'link danger', onclick: async () => {
+        if (!confirm(`Remove “${p.name}” from the bridge? The POS can no longer print to "${p.id}".`)) return;
+        const res = await api.removePrinter(p.id);
+        if (!res.ok) return toast(res.error);
+        config = res.value;
+        renderConfig();
+        toast('Printer removed');
+      } }, 'Remove printer'),
+    ),
+  );
+  return el('div', { class: 'printer-settings' }, ...rows);
+}
+
+function renderPrinterCards() {
+  const container = $('printerCards');
+  // Don't redraw under the user's cursor while they type a name.
+  if (container.contains(document.activeElement) && document.activeElement.tagName === 'INPUT') {
+    renderPending = true;
+    return;
+  }
+  renderPending = false;
+  const printers = config?.printers ?? [];
+  $('printerCount').textContent = printers.length ? `${printers.length} printer${printers.length > 1 ? 's' : ''}` : '';
+
+  if (printers.length === 0) {
+    const s = lastStatus?.printer;
+    container.replaceChildren(
+      el(
+        'div',
+        { class: 'empty-state' },
+        el('div', { class: 'option-label' }, s?.title ?? 'No printer set up'),
+        el('ol', { class: 'steps-list' }, ...(s?.steps ?? []).map((x) => el('li', {}, x))),
+      ),
+    );
+    return;
+  }
+
+  container.replaceChildren(
+    ...printers.map((p, index) => {
+      const status = lastStatus?.printers.find((x) => x.id === p.id) ?? { level: 'off', title: 'Checking…', detail: '', steps: [] };
+      const isDefault = printers.findIndex((x) => x.kind === p.kind) === index;
+      const detail = p.kind === 'receipt' ? `${RECEIPT_WIDTHS.find(([w]) => w === String(p.paperWidthChars))?.[1] ?? `${p.paperWidthChars} chars`}` : p.paperSize;
+      const result = el('p', { class: 'result', role: 'status' });
+
+      const fix =
+        status.action === 'resume-queue' ? el('button', { class: 'primary', onclick: (e) => fixPrinter(e.target, p.id, 'resume-queue') }, 'Resume printing')
+        : status.action === 'clear-queue' ? el('button', { onclick: (e) => fixPrinter(e.target, p.id, 'clear-queue') }, 'Clear waiting jobs')
+        : null;
+
+      return el(
+        'div',
+        { class: 'printer-card', 'data-level': status.level },
+        el(
+          'div',
+          { class: 'printer-top' },
+          el('span', { class: 'dot', 'aria-hidden': 'true' }),
+          el(
+            'div',
+            { class: 'status-text' },
+            el(
+              'div',
+              { class: 'printer-name' },
+              p.name,
+              el('span', { class: 'badges' }, el('span', { class: 'badge kind' }, `${KIND_LABEL[p.kind]} · ${detail}`), isDefault ? el('span', { class: 'badge' }, p.kind === 'receipt' ? 'Default for receipts' : 'Default for documents') : null),
+            ),
+            el('div', { class: 'small' }, el('strong', {}, status.title), status.detail ? ` — ${status.detail}` : ''),
+            el('div', { class: 'muted small' }, 'API name: ', el('code', {}, p.id)),
+          ),
+          el(
+            'div',
+            { class: 'row tight' },
+            el('button', {
+              class: 'primary',
+              onclick: (e) =>
+                busy(e.target, 'Printing…', async () => {
+                  const res = await api.testPrint(p.id);
+                  result.textContent = res.ok ? '✓ Test page sent. Check the printer.' : res.error;
+                  result.className = `result ${res.ok ? 'ok' : 'error'}`;
+                }),
+            }, 'Test print'),
+            el('button', {
+              class: 'ghost',
+              'aria-expanded': String(openSettings.has(p.id)),
+              onclick: () => {
+                if (openSettings.has(p.id)) openSettings.delete(p.id);
+                else openSettings.add(p.id);
+                renderPrinterCards();
+              },
+            }, openSettings.has(p.id) ? 'Done' : 'Settings'),
+          ),
+        ),
+        status.steps.length
+          ? el('div', { class: 'steps' }, el('div', { class: 'steps-title' }, 'What to do'), el('ol', {}, ...status.steps.map((x) => el('li', {}, x))), fix ? el('div', { class: 'row' }, fix) : null)
+          : null,
+        result,
+        openSettings.has(p.id) ? printerSettings(p, isDefault) : null,
+      );
+    }),
+  );
+}
+
+$('printerCards').addEventListener('focusout', () => setTimeout(() => renderPending && renderPrinterCards(), 0));
+
+async function fixPrinter(button, id, action) {
+  const res = await busy(button, 'Working…', () => api.fixPrinter(id, action));
   if (res.ok) renderStatus(res.value);
   else toast(res.error);
 }
 
-// ---------- printers ----------
+// ---------- add a printer ----------
 
-function isSelected(p) {
-  if (!config?.printer.enabled) return false;
-  if (config.printer.connectionType === 'network') {
-    return p.kind === 'network' && !p.queueName && p.host === config.printer.network.host;
-  }
-  return Boolean(p.queueName) && p.queueName === config.printer.usb.systemPrinterName;
+function alreadyAdded(found) {
+  return (config?.printers ?? []).some((p) =>
+    p.connection.type === 'system' ? found.queueName === p.connection.queueName : found.host === p.connection.host && !found.queueName,
+  );
 }
 
 function describe(p) {
-  const kind = p.kind === 'usb' ? 'USB' : p.kind === 'network' ? 'Network' : 'System printer';
+  const kind = p.kind === 'usb' ? 'USB' : p.kind === 'network' ? 'Network' : 'Installed printer';
   if (!p.online) return { sub: `${kind} · unplugged or off`, badge: ['Offline', 'error'] };
   if (!p.installed && p.kind === 'usb') return { sub: `${kind} · plugged in, not set up yet`, badge: ['New', ''] };
-  return { sub: `${kind}${p.host ? ` · ${p.host}:${p.port}` : ''}`, badge: ['Connected', 'ok'] };
+  return { sub: `${kind}${p.host ? ` · ${p.host}:${p.port}` : ''}${p.likelyReceiptPrinter ? ' · looks like a receipt printer' : ''}`, badge: null };
+}
+
+async function addFound(button, p, kind) {
+  const res = await busy(button, p.installed || p.kind === 'network' ? 'Adding…' : 'Setting up…', () => api.addPrinter(p, { kind }));
+  if (!res.ok) return toast(res.error);
+  config = await api.getConfig();
+  openSettings.add(res.value.id);
+  renderConfig();
+  renderStatus(await api.refreshStatus());
+  toast(`Added “${res.value.name}” as API name "${res.value.id}". Try a test print.`);
 }
 
 function renderPrinters() {
   const list = $('printerList');
   const seen = new Set(discovered.map((p) => p.host).filter(Boolean));
-  const all = [...discovered, ...networkFound.filter((p) => !seen.has(p.host))];
-
-  // Also show the configured network printer even if no scan was run.
-  if (config?.printer.enabled && config.printer.connectionType === 'network' && !all.some(isSelected)) {
-    const { host, port } = config.printer.network;
-    all.unshift({ id: `net:${host}:${port}`, kind: 'network', label: `Network printer at ${host}`, host, port, installed: false, online: true });
-  }
+  const all = [...discovered, ...networkFound.filter((p) => !seen.has(p.host))].filter((p) => !alreadyAdded(p));
 
   if (all.length === 0) {
     list.replaceChildren(
-      el('li', { class: 'empty' }, 'No printers found. Plug the printer in with USB and turn it on — it will appear here automatically.'),
+      el('li', { class: 'empty' }, (config?.printers.length ?? 0) > 0
+        ? 'All printers found are already added. Plug in another printer and it will appear here.'
+        : 'No printers found. Plug the printer in with USB and turn it on — it will appear here automatically.'),
     );
     return;
   }
 
   list.replaceChildren(
     ...all.map((p) => {
-      const selected = isSelected(p);
       const { sub, badge } = describe(p);
-      const action = selected
-        ? el('span', { class: 'badge ok' }, '✓ In use')
-        : el(
-            'button',
-            {
-              class: p.online && p.likelyReceiptPrinter ? 'primary' : '',
-              onclick: async (e) => {
-                const res = await busy(e.target, p.installed ? 'Switching…' : 'Setting up…', () => api.usePrinter(p));
-                if (!res.ok) return toast(res.error);
-                config = await api.getConfig();
-                renderConfig();
-                renderStatus(res.value);
-                toast(`Now printing to ${p.label}. Try a test print.`);
-              },
-            },
-            p.installed || p.kind === 'network' ? 'Use this' : 'Set up',
-          );
+      const receiptFirst = p.likelyReceiptPrinter || (p.kind === 'network' && !p.queueName);
+      const canDocument = Boolean(p.queueName || p.usbDeviceId);
+      const receiptBtn = el('button', { class: receiptFirst ? 'primary' : '', onclick: (e) => addFound(e.target, p, 'receipt') }, 'Add as receipt printer');
+      const docBtn = canDocument ? el('button', { class: receiptFirst ? '' : 'primary', onclick: (e) => addFound(e.target, p, 'document') }, 'Add as A4 printer') : null;
       return el(
         'li',
-        { class: selected ? 'selected' : '' },
+        {},
         el('span', { class: 'device-icon', 'aria-hidden': 'true' }, p.kind === 'network' ? '🌐' : p.kind === 'usb' ? '🔌' : '🖨️'),
         el('div', { class: 'device-main' }, el('div', { class: 'device-name' }, p.label), el('div', { class: 'device-sub' }, sub)),
-        selected ? null : el('span', { class: `badge ${badge[1]}` }, badge[0]),
-        action,
+        badge ? el('span', { class: `badge ${badge[1]}` }, badge[0]) : null,
+        el('div', { class: 'add-buttons' }, ...(receiptFirst ? [receiptBtn, docBtn] : [docBtn, receiptBtn])),
       );
     }),
   );
@@ -204,25 +370,30 @@ function setSegment(id, value) {
 }
 
 function snippet(url, token) {
-  return `// Print a receipt from your POS (browser or Node 18+).
+  const receiptId = config.printers.find((p) => p.kind === 'receipt')?.id ?? 'receipt';
+  const documentId = config.printers.find((p) => p.kind === 'document')?.id ?? 'invoice';
+  return `// Print from your POS (browser or Node 18+).
 // Money is in minor units: 12.50 → 1250.
 const BRIDGE_URL = '${url}';
 const BRIDGE_TOKEN = '${token}';
 
-async function printReceipt(sale) {
-  const res = await fetch(\`\${BRIDGE_URL}/print/receipt\`, {
+async function bridge(path, body) {
+  const res = await fetch(BRIDGE_URL + path, {
     method: 'POST',
     headers: {
       Authorization: \`Bearer \${BRIDGE_TOKEN}\`,
       'Content-Type': 'application/json',
     },
-    body: JSON.stringify(sale),
+    body: JSON.stringify(body),
   });
   const data = await res.json();
   if (!res.ok) throw new Error(data.error + (data.details ? ': ' + data.details.join('; ') : ''));
+  return data;
 }
 
-await printReceipt({
+// 1. Receipt on the thermal printer ("printer" is optional: default receipt printer)
+await bridge('/print/receipt', {
+  printer: '\${receiptId}',
   businessName: 'My Shop',
   locationName: 'Main Street',
   saleReference: 'SALE-1042',
@@ -237,40 +408,37 @@ await printReceipt({
   currency: 'USD',
   paymentMethod: 'Cash',
   footer: 'Thank you, come again!',
+});
+
+// 2. A4 invoice on the office printer: send any HTML page
+await bridge('/print/document', {
+  printer: '\${documentId}',
+  paperSize: 'A4',
+  title: 'Invoice INV-1042',
+  html: '<h1>Invoice INV-1042</h1><p>Bill to: Jane Doe</p><table>…</table>',
 });`;
 }
 
 function renderConfig() {
-  const { server, printer, terminal } = config;
+  const { server, terminal } = config;
   const url = `http://127.0.0.1:${server.port}`;
   $('apiUrl').value = url;
   $('authToken').value = server.authToken;
   $('port').value = server.port;
   $('snippet').textContent = snippet(url, server.authToken);
 
-  setSegment('paperWidth', printer.paperWidthChars);
-  setSegment('printerDriver', printer.driver);
-  $('printerHost').value = printer.network.host;
-  $('printerPort').value = printer.network.port;
-  $('turnOffPrinter').hidden = !printer.enabled;
 
   $('launchAtLogin').checked = config.app?.launchAtLogin !== false;
+  $('autoDetectPrinters').checked = config.app?.autoDetectPrinters !== false;
   $('terminalEnabled').checked = terminal.enabled;
   $('terminalFields').hidden = !terminal.enabled;
   $('baudRate').value = terminal.baudRate;
   $('responseTimeoutSec').value = Math.round(terminal.responseTimeoutMs / 1000);
+  renderPrinterCards();
   renderPrinters();
 }
 
 // ---------- events ----------
-
-$('testPrint').addEventListener('click', (e) =>
-  busy(e.target, 'Printing…', async () => {
-    setResult('printResult', '');
-    const res = await api.testPrint();
-    setResult('printResult', res.ok ? '✓ Test page sent. Check the printer.' : res.error, res.ok ? 'ok' : 'error');
-  }),
-);
 
 $('refreshPrinters').addEventListener('click', (e) =>
   busy(e.target, 'Searching…', async () => {
@@ -293,31 +461,7 @@ $('useNetworkPrinter').addEventListener('click', (e) => {
   const host = $('printerHost').value.trim();
   const port = Number($('printerPort').value) || 9100;
   if (!/^[\w.-]+$/.test(host)) return toast('Enter the printer’s IP address, e.g. 192.168.1.100');
-  return busy(e.target, 'Connecting…', async () => {
-    const res = await api.usePrinter({ id: `net:${host}:${port}`, kind: 'network', label: host, host, port, installed: false, online: true });
-    if (!res.ok) return toast(res.error);
-    config = await api.getConfig();
-    renderConfig();
-    renderStatus(res.value);
-  });
-});
-
-$('paperWidth').addEventListener('click', (e) => {
-  const value = e.target.dataset?.value;
-  if (value) saveConfig({ printer: { paperWidthChars: Number(value) } }, 'Paper size saved');
-});
-
-$('printerDriver').addEventListener('click', (e) => {
-  const value = e.target.dataset?.value;
-  if (value) saveConfig({ printer: { driver: value } }, 'Printer language saved');
-});
-
-$('turnOffPrinter').addEventListener('click', async () => {
-  if (!confirm('Stop printing receipts? You can pick a printer again at any time.')) return;
-  const res = await api.turnOffPrinter();
-  config = await api.getConfig();
-  renderConfig();
-  if (res.ok) renderStatus(res.value);
+  return addFound(e.target, { id: `net:${host}:${port}`, kind: 'network', label: `Network printer at ${host}`, host, port, installed: false, online: true }, 'receipt');
 });
 
 $('terminalEnabled').addEventListener('change', async (e) => {
@@ -374,6 +518,9 @@ $('regenToken').addEventListener('click', async () => {
 
 $('launchAtLogin').addEventListener('change', (e) =>
   saveConfig({ app: { launchAtLogin: e.target.checked } }, e.target.checked ? 'Will start with the computer' : 'Won’t start with the computer'),
+);
+$('autoDetectPrinters').addEventListener('change', (e) =>
+  saveConfig({ app: { autoDetectPrinters: e.target.checked } }, e.target.checked ? 'Receipt printers will be set up automatically' : 'Automatic setup turned off'),
 );
 $('openLogs').addEventListener('click', () => api.openLogs());
 

@@ -1,4 +1,4 @@
-import type { ReceiptModel, TerminalChargeRequest } from './types';
+import type { DocumentPaperSize, ReceiptModel, TerminalChargeRequest } from './types';
 
 /** Returns a list of problems with a request body; empty means it's valid. */
 type Check = (body: Record<string, unknown>) => string[];
@@ -17,8 +17,17 @@ function requireMoney(body: Record<string, unknown>, field: string, problems: st
   }
 }
 
+const PAPER_SIZES = ['A4', 'A5', 'Letter', 'Legal'];
+
+function checkPrinterName(body: Record<string, unknown>, problems: string[]): void {
+  if (body.printer !== undefined && !isText(body.printer)) {
+    problems.push('"printer" must be the printer’s API name (e.g. "receipt" or "invoice") when given');
+  }
+}
+
 const checkReceipt: Check = (body) => {
   const problems: string[] = [];
+  checkPrinterName(body, problems);
   requireText(body, 'businessName', problems);
   requireText(body, 'saleReference', problems);
   requireText(body, 'timestamp', problems);
@@ -56,6 +65,29 @@ const checkReceipt: Check = (body) => {
   return problems;
 };
 
+const checkDocument: Check = (body) => {
+  const problems: string[] = [];
+  checkPrinterName(body, problems);
+  const hasHtml = body.html !== undefined;
+  const hasPdf = body.pdfBase64 !== undefined;
+  if (hasHtml === hasPdf) problems.push('Send exactly one of "html" (an HTML page) or "pdfBase64" (a PDF file, base64-encoded)');
+  if (hasHtml && !isText(body.html)) problems.push('"html" must be a non-empty string');
+  if (hasPdf && !(typeof body.pdfBase64 === 'string' && /^[A-Za-z0-9+/=\s]+$/.test(body.pdfBase64) && body.pdfBase64.length > 0)) {
+    problems.push('"pdfBase64" must be a base64-encoded PDF');
+  } else if (hasPdf && Buffer.from((body.pdfBase64 as string).slice(0, 12), 'base64').toString('latin1').slice(0, 5) !== '%PDF-') {
+    problems.push('"pdfBase64" does not contain a PDF file (it should start with %PDF-)');
+  }
+  if (body.title !== undefined && typeof body.title !== 'string') problems.push('"title" must be a string when given');
+  if (body.paperSize !== undefined && !PAPER_SIZES.includes(body.paperSize as string)) {
+    problems.push(`"paperSize" must be one of ${PAPER_SIZES.join(', ')}`);
+  }
+  if (body.landscape !== undefined && typeof body.landscape !== 'boolean') problems.push('"landscape" must be true or false');
+  if (body.copies !== undefined && !(Number.isInteger(body.copies) && (body.copies as number) >= 1 && (body.copies as number) <= 20)) {
+    problems.push('"copies" must be a whole number from 1 to 20');
+  }
+  return problems;
+};
+
 const checkCharge: Check = (body) => {
   const problems: string[] = [];
   if (!(Number.isInteger(body.amountMinorUnits) && (body.amountMinorUnits as number) > 0)) {
@@ -76,7 +108,24 @@ function validate<T>(body: unknown, check: Check): { ok: true; value: T } | { ok
   return problems.length ? { ok: false, problems } : { ok: true, value: body as T };
 }
 
-export const validateReceipt = (body: unknown) => validate<ReceiptModel>(body, checkReceipt);
+export interface DocumentRequest {
+  printer?: string;
+  html?: string;
+  pdfBase64?: string;
+  title?: string;
+  paperSize?: DocumentPaperSize;
+  landscape?: boolean;
+  copies?: number;
+}
+
+export const validateReceipt = (body: unknown) => validate<ReceiptModel & { printer?: string }>(body, checkReceipt);
+export const validateDocument = (body: unknown) => validate<DocumentRequest>(body, checkDocument);
+export const validatePrinterChoice = (body: unknown) =>
+  validate<{ printer?: string }>(body ?? {}, (b) => {
+    const problems: string[] = [];
+    checkPrinterName(b, problems);
+    return problems;
+  });
 export const validateCharge = (body: unknown) => validate<TerminalChargeRequest>(body, checkCharge);
 export const validateReference = (body: unknown) =>
   validate<{ reference: string }>(body, (b) => (isText(b.reference) ? [] : ['"reference" is required']));

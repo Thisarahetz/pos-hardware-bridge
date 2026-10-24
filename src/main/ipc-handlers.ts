@@ -1,11 +1,21 @@
 import { app, clipboard, ipcMain, shell } from 'electron';
 import { log } from './logger';
-import { getConfig, updateConfig, regenerateAuthToken, type ConfigPatch } from './config-store';
+import {
+  getConfig,
+  makeDefaultPrinter,
+  regenerateAuthToken,
+  removePrinter,
+  renamePrinterId,
+  updateConfig,
+  updatePrinter,
+  type ConfigPatch,
+} from './config-store';
 import { restartServer } from './server';
 import { printTestPage } from './printer/printer.service';
 import { discoverPrinters, scanNetworkPrinters, type DiscoveredPrinter } from './printer/discovery';
 import { getBackend } from './printer/backend';
-import { usePrinter } from './printer/setup';
+import { addDiscoveredPrinter, type AddPrinterOptions } from './printer/setup';
+import type { PrinterProfile } from './types';
 import { charge, listSerialPorts, resetTerminalConnection } from './terminal/terminal.service';
 import { getStatus, refreshStatus } from './status-monitor';
 import { applyLaunchAtLogin } from './autostart';
@@ -43,26 +53,49 @@ export function registerIpcHandlers(): void {
   ipcMain.handle('printers:discover', () => attempt(discoverPrinters));
   ipcMain.handle('printers:scan-network', () => attempt(() => scanNetworkPrinters()));
 
-  ipcMain.handle('printers:use', (_evt, printer: DiscoveredPrinter) =>
+  ipcMain.handle('printers:add', (_evt, printer: DiscoveredPrinter, options: AddPrinterOptions) =>
     attempt(async () => {
-      await usePrinter(printer);
-      return refreshStatus();
+      const profile = await addDiscoveredPrinter(printer, options);
+      void refreshStatus();
+      return profile;
     }),
   );
 
-  ipcMain.handle('printer:turn-off', () =>
+  ipcMain.handle('printers:update', (_evt, id: string, patch: Partial<PrinterProfile>) =>
     attempt(async () => {
-      updateConfig({ printer: { enabled: false, autoDetect: false } });
-      return refreshStatus();
+      const { id: newId, connection: _ignored, ...rest } = patch;
+      updatePrinter(id, rest);
+      if (newId && newId !== id) renamePrinterId(id, newId);
+      void refreshStatus();
+      return getConfig();
     }),
   );
 
-  ipcMain.handle('printer:fix', (_evt, action: 'resume-queue' | 'clear-queue') =>
+  ipcMain.handle('printers:remove', (_evt, id: string) =>
     attempt(async () => {
-      const name = getConfig().printer.usb.systemPrinterName;
-      if (!name) throw new Error('No printer selected.');
-      if (action === 'resume-queue') await getBackend().resume(name);
-      if (action === 'clear-queue') await getBackend().clear(name);
+      removePrinter(id);
+      // Don't immediately re-add the printer the operator just removed.
+      updateConfig({ app: { autoDetectPrinters: false } });
+      void refreshStatus();
+      return getConfig();
+    }),
+  );
+
+  ipcMain.handle('printers:make-default', (_evt, id: string) =>
+    attempt(async () => {
+      makeDefaultPrinter(id);
+      void refreshStatus();
+      return getConfig();
+    }),
+  );
+
+  ipcMain.handle('printers:fix', (_evt, id: string, action: 'resume-queue' | 'clear-queue') =>
+    attempt(async () => {
+      const profile = getConfig().printers.find((p) => p.id === id);
+      if (!profile || profile.connection.type !== 'system') throw new Error('This printer has no print queue to fix.');
+      const queue = profile.connection.queueName;
+      if (action === 'resume-queue') await getBackend().resume(queue);
+      if (action === 'clear-queue') await getBackend().clear(queue);
       return refreshStatus();
     }),
   );
@@ -71,7 +104,7 @@ export function registerIpcHandlers(): void {
     listSerialPorts({ includeSystemPorts: Boolean(includeSystemPorts) }),
   );
 
-  ipcMain.handle('test:print', () => attempt(printTestPage));
+  ipcMain.handle('test:print', (_evt, id?: string) => attempt(() => printTestPage(id)));
 
   ipcMain.handle('test:terminal-charge', () =>
     attempt(() => charge({ amountMinorUnits: 100, currency: 'USD', reference: `test-${Date.now()}` })),

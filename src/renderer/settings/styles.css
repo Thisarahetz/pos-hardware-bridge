@@ -202,3 +202,25 @@ pre {
   margin-bottom: 14px;
 }
 .spaced { margin-top: 12px; }
+
+/* Printer cards */
+.printer-cards { display: grid; gap: 10px; }
+.printer-card { border: 1px solid var(--border); border-radius: 10px; padding: 12px 14px; background: var(--card); }
+.printer-card[data-level="ok"] { background: var(--ok-bg); }
+.printer-card[data-level="warning"] { background: var(--warning-bg); }
+.printer-card[data-level="error"] { background: var(--error-bg); }
+.printer-card[data-level="ok"] .dot { background: var(--ok); }
+.printer-card[data-level="warning"] .dot { background: var(--warning); }
+.printer-card[data-level="error"] .dot { background: var(--error); animation: pulse 1.6s infinite; }
+.printer-top { display: flex; align-items: center; gap: 12px; }
+.printer-top .status-text h2 { font-size: 15px; }
+.printer-name { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; font-weight: 600; }
+.badges { display: inline-flex; gap: 4px; }
+.badge.kind { background: color-mix(in srgb, var(--accent) 15%, transparent); color: var(--text); }
+.printer-settings { margin-top: 10px; padding-top: 10px; border-top: 1px solid var(--border); }
+.printer-settings .option + .option { margin-top: 10px; }
+.empty-state { text-align: center; padding: 18px; color: var(--muted); border: 1px dashed var(--border); border-radius: 10px; }
+.add-buttons { display: flex; gap: 6px; flex-wrap: wrap; justify-content: flex-end; }
+code { font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; font-size: 12px; background: var(--hover); padding: 1px 5px; border-radius: 4px; }
+.grow { flex: 1; }
+.empty-state ol { text-align: left; display: inline-block; margin: 8px 0 0; }
