@@ -3,6 +3,7 @@ name: Build Windows installer
 on:
   workflow_dispatch:
   push:
+    branches: [master, 'feature/**']
     tags: ['v*']
 
 jobs:
