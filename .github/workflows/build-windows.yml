@@ -16,7 +16,7 @@ jobs:
           node-version: 22
           cache: npm
       - run: npm ci
-      - run: npm run dist:win
+      - run: npm run dist:win -- --publish never
         env:
           # No code-signing certificate yet: build an unsigned installer.
           CSC_IDENTITY_AUTO_DISCOVERY: 'false'
