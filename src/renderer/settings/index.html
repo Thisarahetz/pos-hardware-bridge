@@ -2,72 +2,170 @@
 <html>
 <head>
 <meta charset="utf-8" />
+<meta http-equiv="Content-Security-Policy" content="default-src 'self'; style-src 'self'; script-src 'self'" />
 <title>POS Hardware Bridge</title>
 <link rel="stylesheet" href="styles.css" />
 </head>
 <body>
-  <h1>POS Hardware Bridge</h1>
-
-  <section>
-    <h2>Local API</h2>
-    <p class="muted">Any POS web app on this machine calls this address to print receipts and charge the terminal.</p>
-    <label>Port</label>
-    <input id="port" type="number" min="1024" max="65535" />
-    <label>Auth token</label>
-    <div class="row">
-      <input id="authToken" type="text" readonly />
-      <button id="regenToken">Regenerate</button>
-      <button id="copyToken">Copy</button>
+  <header class="top">
+    <div>
+      <h1>POS Hardware Bridge</h1>
+      <p class="muted">Connects your POS to the receipt printer and card terminal on this computer.</p>
     </div>
+    <span id="apiPill" class="pill">API starting…</span>
+  </header>
+  <div id="apiError" class="banner" hidden></div>
+
+  <!-- Printer status -->
+  <section class="card status-card" id="printerStatusCard" data-level="off">
+    <div class="status-head">
+      <span class="dot" aria-hidden="true"></span>
+      <div class="status-text">
+        <div class="eyebrow">Receipt printer</div>
+        <h2 id="printerTitle">Checking…</h2>
+        <p id="printerDetail" class="muted"></p>
+      </div>
+      <div class="status-actions">
+        <button id="testPrint" class="primary">Print test page</button>
+      </div>
+    </div>
+    <div id="printerSteps" class="steps" hidden>
+      <div class="steps-title">What to do</div>
+      <ol id="printerStepsList"></ol>
+      <div class="row" id="printerFixRow"></div>
+    </div>
+    <p id="printResult" class="result" role="status"></p>
   </section>
 
-  <section>
-    <h2>Receipt printer</h2>
-    <label><input id="printerEnabled" type="checkbox" /> Enabled</label>
-    <label>Connection</label>
-    <select id="printerConnectionType">
-      <option value="usb">USB (installed OS printer)</option>
-      <option value="network">Network (IP printer)</option>
-    </select>
-    <div id="printerUsbFields">
-      <label>System printer</label>
-      <select id="systemPrinterName"></select>
-      <button id="refreshPrinters">Refresh</button>
+  <!-- Printer picker -->
+  <section class="card">
+    <div class="card-head">
+      <h3>Printers found</h3>
+      <div class="row tight">
+        <button id="refreshPrinters" class="ghost">Search again</button>
+        <button id="scanNetwork" class="ghost">Scan network</button>
+      </div>
     </div>
-    <div id="printerNetworkFields">
-      <label>Host</label>
-      <input id="printerHost" type="text" placeholder="192.168.1.100" />
-      <label>Port</label>
-      <input id="printerPort" type="number" placeholder="9100" />
+    <ul id="printerList" class="device-list">
+      <li class="empty">Looking for printers…</li>
+    </ul>
+
+    <details class="advanced">
+      <summary>Network printer by IP address</summary>
+      <div class="grid2">
+        <label>IP address <input id="printerHost" type="text" placeholder="192.168.1.100" inputmode="decimal" /></label>
+        <label>Port <input id="printerPort" type="number" placeholder="9100" /></label>
+      </div>
+      <button id="useNetworkPrinter">Use this address</button>
+    </details>
+
+    <div class="options">
+      <div class="option">
+        <div>
+          <div class="option-label">Paper size</div>
+          <div class="muted small">Run a test print — the number line should reach the right edge.</div>
+        </div>
+        <div class="segmented" id="paperWidth">
+          <button data-value="32">58 mm</button>
+          <button data-value="42">80 mm</button>
+          <button data-value="48">80 mm (wide)</button>
+        </div>
+      </div>
+      <div class="option">
+        <div>
+          <div class="option-label">Printer language</div>
+          <div class="muted small">Most printers use ESC/POS. Choose Star only for Star Micronics printers.</div>
+        </div>
+        <div class="segmented" id="printerDriver">
+          <button data-value="epson">ESC/POS</button>
+          <button data-value="star">Star</button>
+        </div>
+      </div>
     </div>
-    <label>Paper width (chars)</label>
-    <input id="paperWidthChars" type="number" />
-    <div class="row">
-      <button id="saveSettings">Save settings</button>
-      <button id="testPrint">Test print</button>
-    </div>
-    <p id="printResult" class="muted"></p>
+    <button id="turnOffPrinter" class="link danger">Stop using a printer</button>
   </section>
 
-  <section>
-    <h2>Payment terminal</h2>
-    <label><input id="terminalEnabled" type="checkbox" /> Enabled</label>
-    <label>Serial port</label>
-    <div class="row">
-      <select id="serialPath"></select>
-      <button id="refreshPorts">Refresh</button>
+  <!-- Card terminal -->
+  <section class="card status-card" id="terminalStatusCard" data-level="off">
+    <div class="status-head">
+      <span class="dot" aria-hidden="true"></span>
+      <div class="status-text">
+        <div class="eyebrow">Card terminal</div>
+        <h2 id="terminalTitle">Checking…</h2>
+        <p id="terminalDetail" class="muted"></p>
+      </div>
+      <label class="switch">
+        <input id="terminalEnabled" type="checkbox" />
+        <span>Use a card terminal</span>
+      </label>
     </div>
-    <label>Baud rate</label>
-    <input id="baudRate" type="number" />
-    <label>Response timeout (ms)</label>
-    <input id="responseTimeoutMs" type="number" />
-    <div class="row">
-      <button id="saveTerminalSettings">Save settings</button>
+    <div id="terminalSteps" class="steps" hidden>
+      <ol id="terminalStepsList"></ol>
+    </div>
+    <div id="terminalFields">
+      <label>Port
+        <div class="row">
+          <select id="serialPath"></select>
+          <button id="refreshPorts" class="ghost">Refresh</button>
+        </div>
+      </label>
+      <label class="check"><input id="showAllPorts" type="checkbox" /> Show all ports</label>
+      <details class="advanced">
+        <summary>Advanced</summary>
+        <div class="grid2">
+          <label>Baud rate <input id="baudRate" type="number" /></label>
+          <label>Response timeout (seconds) <input id="responseTimeoutSec" type="number" min="5" /></label>
+        </div>
+      </details>
       <button id="testCharge">Test $1.00 charge</button>
+      <p id="terminalResult" class="result" role="status"></p>
     </div>
-    <p id="terminalResult" class="muted"></p>
   </section>
 
+  <!-- Integration -->
+  <section class="card">
+    <h3>Connect your POS</h3>
+    <p class="muted">Paste these two values into your POS settings (GlowDesk, SmartPOS, Restaurant POS…).</p>
+    <label>Bridge address
+      <div class="row">
+        <input id="apiUrl" type="text" readonly />
+        <button data-copy="apiUrl">Copy</button>
+      </div>
+    </label>
+    <label>Access token
+      <div class="row">
+        <input id="authToken" type="password" readonly />
+        <button id="toggleToken" class="ghost">Show</button>
+        <button data-copy="authToken">Copy</button>
+      </div>
+    </label>
+    <details class="advanced">
+      <summary>Developer details</summary>
+      <p class="muted small">Example: print a receipt. Full API guide is in the README.</p>
+      <pre id="snippet"></pre>
+      <button data-copy="snippet">Copy example</button>
+      <div class="grid2">
+        <label>Port <input id="port" type="number" min="1024" max="65535" /></label>
+        <div class="bottom-align"><button id="savePort">Change port</button></div>
+      </div>
+      <button id="regenToken" class="link danger">Make a new token (your POS must be updated)</button>
+    </details>
+  </section>
+
+  <!-- This computer -->
+  <section class="card">
+    <h3>This computer</h3>
+    <div class="option">
+      <div>
+        <div class="option-label">Start automatically</div>
+        <div class="muted small">Opens quietly in the tray when the computer starts, so receipts always print.</div>
+      </div>
+      <label class="switch"><input id="launchAtLogin" type="checkbox" /> <span>On</span></label>
+    </div>
+    <p class="muted small spaced">Closing this window keeps the bridge running in the tray. <button id="openLogs" class="link">Open log folder</button></p>
+  </section>
+
+  <div id="toast" class="toast" role="status" hidden></div>
   <script src="settings.js"></script>
 </body>
 </html>

@@ -19,6 +19,9 @@ export interface PrinterConfig {
     port: number;
   };
   paperWidthChars: number;
+  /** When true (default), a newly plugged-in receipt printer is set up
+   * automatically while no printer is configured. */
+  autoDetect?: boolean;
 }
 
 export interface TerminalConfig {
@@ -34,7 +37,13 @@ export interface ServerConfig {
   authToken: string;
 }
 
+export interface AppSettings {
+  /** Start the bridge (in the tray) when the user signs in to the computer. */
+  launchAtLogin: boolean;
+}
+
 export interface BridgeConfig {
+  app: AppSettings;
   server: ServerConfig;
   printer: PrinterConfig;
   terminal: TerminalConfig;
@@ -80,4 +89,24 @@ export interface TerminalChargeResult {
   authCode?: string;
   cardLast4?: string;
   message?: string;
+}
+
+export type StatusLevel = 'ok' | 'warning' | 'error' | 'off';
+
+/** Plain-language device status shown in the tray, the settings window and /status. */
+export interface DeviceStatus {
+  level: StatusLevel;
+  title: string;
+  detail: string;
+  /** What the operator should do next, in order. Empty when everything is fine. */
+  steps: string[];
+  /** Optional one-click fix the settings window can offer. */
+  action?: 'resume-queue' | 'clear-queue' | 'setup-printer';
+}
+
+export interface BridgeStatus {
+  printer: DeviceStatus;
+  terminal: DeviceStatus;
+  api: { url: string; running: boolean; error?: string };
+  checkedAt: string;
 }

@@ -14,6 +14,11 @@ function safeEqual(a: string, b: string): boolean {
  * security (the server only binds 127.0.0.1) — it stops any other local page or
  * process from silently driving the printer/terminal without the operator
  * having copied the token into their POS app once. */
+/** For WebSockets, where browsers can't send headers: `ws://…/events?token=<token>`. */
+export function isValidToken(token: string | null | undefined): boolean {
+  return Boolean(token) && safeEqual(token as string, getConfig().server.authToken);
+}
+
 export function requireAuthToken(req: Request, res: Response, next: NextFunction): void {
   const header = req.header('authorization') ?? '';
   const [scheme, token] = header.split(' ');

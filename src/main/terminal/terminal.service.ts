@@ -52,7 +52,22 @@ export function terminalStatus(): { connected: boolean } {
   }
 }
 
-export async function listSerialPorts(): Promise<Array<{ path: string; manufacturer?: string }>> {
+/** Ports that are never a card terminal: macOS Bluetooth/debug ports, and on macOS
+ * anything without a USB vendor id (paired Bluetooth headphones etc.). */
+function isSystemPort(p: { path: string; vendorId?: string }): boolean {
+  if (/Bluetooth-Incoming-Port|debug-console|wlan-debug/i.test(p.path)) return true;
+  return process.platform === 'darwin' && !p.vendorId;
+}
+
+export async function listSerialPorts(
+  options: { includeSystemPorts?: boolean } = {},
+): Promise<Array<{ path: string; manufacturer?: string; label: string }>> {
   const ports = await SerialPort.list();
-  return ports.map((p) => ({ path: p.path, manufacturer: p.manufacturer }));
+  return ports
+    .filter((p) => options.includeSystemPorts || !isSystemPort(p))
+    .map((p) => ({
+      path: p.path,
+      manufacturer: p.manufacturer,
+      label: p.manufacturer ? `${p.manufacturer} (${p.path})` : p.path,
+    }));
 }

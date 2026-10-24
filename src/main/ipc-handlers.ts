@@ -1,43 +1,79 @@
-import { ipcMain, type BrowserWindow } from 'electron';
-import { getConfig, updateConfig, regenerateAuthToken } from './config-store';
+import { app, clipboard, ipcMain, shell } from 'electron';
+import { log } from './logger';
+import { getConfig, updateConfig, regenerateAuthToken, type ConfigPatch } from './config-store';
 import { restartServer } from './server';
 import { printTestPage } from './printer/printer.service';
-import { charge, listSerialPorts } from './terminal/terminal.service';
-import { resetTerminalConnection } from './terminal/terminal.service';
-import type { BridgeConfig } from './types';
+import { discoverPrinters, scanNetworkPrinters, type DiscoveredPrinter } from './printer/discovery';
+import { getBackend } from './printer/backend';
+import { usePrinter } from './printer/setup';
+import { charge, listSerialPorts, resetTerminalConnection } from './terminal/terminal.service';
+import { getStatus, refreshStatus } from './status-monitor';
+import { applyLaunchAtLogin } from './autostart';
 
-export function registerIpcHandlers(settingsWindow: BrowserWindow): void {
-  ipcMain.handle('devices:list-system-printers', async () => {
-    return settingsWindow.webContents.getPrintersAsync();
-  });
+type Result<T = undefined> = { ok: true; value?: T } | { ok: false; error: string };
+
+async function attempt<T>(fn: () => Promise<T> | T): Promise<Result<T>> {
+  try {
+    return { ok: true, value: await fn() };
+  } catch (err) {
+    return { ok: false, error: err instanceof Error ? err.message : String(err) };
+  }
+}
+
+export function registerIpcHandlers(): void {
+  ipcMain.handle('status:get', async () => getStatus() ?? refreshStatus());
+  ipcMain.handle('status:refresh', () => refreshStatus());
 
   ipcMain.handle('config:get', () => getConfig());
 
-  ipcMain.handle('config:update', (_evt, patch: Partial<BridgeConfig>) => {
+  ipcMain.handle('config:update', async (_evt, patch: ConfigPatch) => {
+    const before = getConfig();
     const next = updateConfig(patch);
-    resetTerminalConnection();
-    restartServer();
+    if (patch.server && before.server.port !== next.server.port) restartServer();
+    if (patch.terminal) resetTerminalConnection();
+    if (patch.app) applyLaunchAtLogin();
+    void refreshStatus();
     return next;
   });
 
-  ipcMain.handle('config:regenerate-token', () => {
-    const token = regenerateAuthToken();
-    restartServer();
-    return token;
-  });
+  ipcMain.handle('config:regenerate-token', () => regenerateAuthToken());
+  ipcMain.handle('app:open-logs', () => shell.openPath(log.dir() ?? app.getPath('logs')));
+  ipcMain.handle('clipboard:write', (_evt, text: string) => clipboard.writeText(String(text)));
 
-  ipcMain.handle('devices:list-serial-ports', () => listSerialPorts());
+  ipcMain.handle('printers:discover', () => attempt(discoverPrinters));
+  ipcMain.handle('printers:scan-network', () => attempt(() => scanNetworkPrinters()));
 
-  ipcMain.handle('test:print', async () => {
-    try {
-      await printTestPage();
-      return { ok: true };
-    } catch (err) {
-      return { ok: false, error: err instanceof Error ? err.message : String(err) };
-    }
-  });
+  ipcMain.handle('printers:use', (_evt, printer: DiscoveredPrinter) =>
+    attempt(async () => {
+      await usePrinter(printer);
+      return refreshStatus();
+    }),
+  );
 
-  ipcMain.handle('test:terminal-charge', async () => {
-    return charge({ amountMinorUnits: 100, currency: 'USD', reference: `test-${Date.now()}` });
-  });
+  ipcMain.handle('printer:turn-off', () =>
+    attempt(async () => {
+      updateConfig({ printer: { enabled: false, autoDetect: false } });
+      return refreshStatus();
+    }),
+  );
+
+  ipcMain.handle('printer:fix', (_evt, action: 'resume-queue' | 'clear-queue') =>
+    attempt(async () => {
+      const name = getConfig().printer.usb.systemPrinterName;
+      if (!name) throw new Error('No printer selected.');
+      if (action === 'resume-queue') await getBackend().resume(name);
+      if (action === 'clear-queue') await getBackend().clear(name);
+      return refreshStatus();
+    }),
+  );
+
+  ipcMain.handle('devices:list-serial-ports', (_evt, includeSystemPorts?: boolean) =>
+    listSerialPorts({ includeSystemPorts: Boolean(includeSystemPorts) }),
+  );
+
+  ipcMain.handle('test:print', () => attempt(printTestPage));
+
+  ipcMain.handle('test:terminal-charge', () =>
+    attempt(() => charge({ amountMinorUnits: 100, currency: 'USD', reference: `test-${Date.now()}` })),
+  );
 }

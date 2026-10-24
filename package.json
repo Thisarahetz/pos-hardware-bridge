@@ -9,8 +9,12 @@
     "dev": "tsc -p tsconfig.json -w",
     "start": "electron .",
     "dev:start": "concurrently -k \"npm:dev\" \"electron .\"",
-    "pack": "npm run build && electron-builder --dir",
-    "dist": "npm run build && electron-builder"
+    "pack": "npm run icon && electron-builder --dir",
+    "dist": "npm run icon && electron-builder",
+    "icon": "npm run build && node scripts/make-icon.js",
+    "dist:win": "npm run icon && electron-builder --win --x64",
+    "dist:mac": "npm run icon && electron-builder --mac",
+    "dist:win:from-mac": "npm run icon && electron-builder --win --x64 -c.win.signAndEditExecutable=false"
   },
   "dependencies": {
     "electron-store": "^8.2.0",
@@ -31,9 +35,49 @@
   "build": {
     "appId": "com.local.pos-hardware-bridge",
     "productName": "POS Hardware Bridge",
-    "files": ["dist/**/*", "src/renderer/**/*"],
-    "mac": { "category": "public.app-category.business" },
-    "win": { "target": "nsis" },
-    "linux": { "target": "AppImage" }
+    "directories": {
+      "output": "release",
+      "buildResources": "build"
+    },
+    "files": [
+      "dist/**/*",
+      "src/renderer/**/*",
+      "!dist/**/*.map"
+    ],
+    "icon": "build/icon.png",
+    "artifactName": "POS-Hardware-Bridge-Setup-${version}.${ext}",
+    "mac": {
+      "category": "public.app-category.business",
+      "target": [
+        "dmg"
+      ],
+      "artifactName": "POS-Hardware-Bridge-${version}-${arch}.${ext}"
+    },
+    "win": {
+      "target": [
+        {
+          "target": "nsis",
+          "arch": [
+            "x64"
+          ]
+        }
+      ]
+    },
+    "nsis": {
+      "oneClick": true,
+      "perMachine": false,
+      "runAfterFinish": true,
+      "createDesktopShortcut": true,
+      "createStartMenuShortcut": true,
+      "shortcutName": "POS Hardware Bridge",
+      "deleteAppDataOnUninstall": false
+    },
+    "linux": {
+      "target": "AppImage",
+      "category": "Office"
+    }
+  },
+  "author": {
+    "name": "Thisara Hettikankanam"
   }
 }
