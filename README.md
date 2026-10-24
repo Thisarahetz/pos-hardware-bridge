@@ -91,6 +91,40 @@ use **Make default** in a printer's settings to change it.
 
 ---
 
+## Print from any POS device (AI POS)
+
+With AI POS, **every till, tablet and phone in the shop can print to the
+printers on this computer**, even devices on mobile data. This computer
+becomes the shop's *print station*: it holds one outgoing connection to AI
+POS, so it needs no open ports, fixed IP address or router setup.
+
+1. In AI POS, an owner or admin opens **Settings → Printers → Add print
+   station**. It shows the POS address and a 6-digit code, valid for 10 minutes.
+2. In the bridge, in the **AI POS · print from any device** card, enter that
+   address, a name for this computer (for example *Front counter PC*) and the
+   code, then click **Connect**.
+3. The station appears in AI POS with its printers and a green dot. From then
+   on, **Print bill** on any device prints here and shows *Printed ✓* or the
+   printer's error.
+
+Bills print exactly as the POS shows them. On a thermal printer the bill is
+printed as an image at the print head's width, so the logo, QR code and fonts
+come out as designed on any ESC/POS or Star printer. A4/A5 bills go through the
+office printer's driver. Light-grey text is printed darker so it doesn't
+disappear on thermal paper.
+
+**Built so a bill never prints twice or late:**
+- A print that isn't picked up within 2 minutes (for example, this computer is
+  off) expires, and the cashier is offered **Print on this device** instead.
+- If the connection drops after printing, the bill isn't printed again: the
+  bridge remembers what it already printed.
+- After sleep, a network change or an AI POS restart, the bridge reconnects by
+  itself.
+
+The station's key is kept in the computer's keychain (Windows DPAPI, macOS
+Keychain) and never shown. **Disconnect** in the bridge, or **Remove** in AI
+POS, revokes it immediately.
+
 ## Connect your POS – quick start
 
 Every request except `/health` needs the access token from the settings window:
@@ -166,6 +200,7 @@ units** (cents): `12.50` is sent as `1250`.
 | `GET` | `/printers` | ✔ | All configured printers with their API names and status |
 | `POST` | `/print/receipt` | ✔ | Print a receipt (thermal, or laid out on A4) |
 | `POST` | `/print/document` | ✔ | Print an A4/A5 invoice or document (HTML or PDF) |
+| `POST` | `/print/page` | ✔ | Print a ready-made HTML bill on any printer (thermal printers print it as an image) |
 | `POST` | `/print/test` | ✔ | Print a test page (`{"printer":"…"}` optional) |
 | `POST` | `/terminal/charge` | ✔ | Take a card payment |
 | `POST` | `/terminal/cancel` | ✔ | Cancel a payment in progress |
@@ -274,6 +309,22 @@ data laid out as a page with an item table and totals. That's a quick way
 to get A4 invoices without writing any HTML.
 
 Response: `{ "ok": true, "printer": "receipt" }`, naming the printer that was used.
+
+### `POST /print/page`
+
+Print a page laid out by the POS, the same way the AI POS print station does:
+a thermal printer renders it to an image at its print head's width, while an
+A4/A5 printer prints it through its driver.
+
+```json
+{ "html": "<!doctype html>…", "format": "80mm", "printer": "receipt", "copies": 1, "title": "Bill #1042" }
+```
+
+`format` is the paper the page was laid out for: `80mm`, `58mm`, `a4` or `a5`.
+Thermal formats go to the default receipt printer and sheet formats to the
+default document printer, unless you name a `printer`. The page renders with
+scripts off and no network access, so put the CSS inline and embed images as
+`data:` URLs.
 
 ### `POST /print/document`
 
