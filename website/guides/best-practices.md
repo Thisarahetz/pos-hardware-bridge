@@ -1,6 +1,8 @@
 # Best practices
 
-How to build printing into a POS that cashiers can rely on.
+How to build printing into a POS that cashiers can rely on. For a ready-made
+settings page and printing module that follow these rules, see
+[Printer setup in your POS](pos-setup.md).
 
 ## Setup
 
