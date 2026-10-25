@@ -1,74 +1,108 @@
 # pos-hardware-bridge
 
-Print sharp, correctly sized receipts from **any POS** (web, Node or Electron)
-on any ESC/POS or Star thermal printer, kitchen printer or A4 printer, through
+Print sharp receipts from **any POS** (web, Node or Electron) on any ESC/POS or
+Star thermal printer, kitchen printer or A4 printer, through
 [POS Hardware Bridge](https://github.com/Thisarahetz/pos-hardware-bridge).
+
+📖 **Documentation:** https://thisarahetz.github.io/pos-hardware-bridge/
 
 ```bash
 npm install pos-hardware-bridge
 ```
 
 ```js
-import { BridgeClient, receipt } from 'pos-hardware-bridge';
+import { BridgeClient, ReceiptBuilder } from 'pos-hardware-bridge';
 
 const bridge = new BridgeClient({ token: '<access token from the bridge settings>' });
 
-const bill = receipt()
-  .title('My Shop')
+const bill = new ReceiptBuilder()
+  .center('MY SHOP', { bold: true, size: 'large' })
   .center('12 Main St · 077 123 4567')
-  .divider()
+  .banner('PAID')
+  .rule()
   .row('Bill', '#1042')
   .row('Date', '25 Oct 2026 10:41')
-  .divider()
+  .rule()
   .item({ name: 'Latte', qty: 2, unitPrice: '4.50', total: '9.00', notes: ['Oat milk'] })
   .item({ name: 'Croissant', qty: 1, total: '3.50' })
-  .divider()
-  .total('Subtotal', '12.50')
-  .total('TOTAL', 'LKR 1,250.00', { emphasis: true })
-  .qr('https://myshop.example/r/1042', { caption: 'Scan for your e-receipt' })
+  .rule('double')
+  .total('TOTAL', 'LKR 1,250.00')
+  .qr('https://myshop.example/r/1042', 'Scan for your e-receipt')
   .center('Thank you!', { bold: true });
 
-await bridge.print(bill);                        // default receipt printer
-await bridge.print(bill, { printer: 'kitchen' }); // a named printer
+await bridge.printReceipt(bill);                        // default receipt printer
+await bridge.printReceipt(bill, { printer: 'kitchen' }); // a named printer
 ```
 
-No dependencies, 7 KB, typed, works with `import` and `require`.
+No dependencies, typed, works with `import` and `require`.
 
 ---
 
-## The receipt document guideline
+## Receipts, line by line
 
-Every receipt is a **[ReceiptLine](https://github.com/receiptline/receiptline)**
-document: an open, documented "Markdown for receipts" (Apache-2.0). This SDK
-writes it for you; you can also write it by hand or in any language.
+A receipt is a list of lines (`blocks`): `text`, `row`, `rule`, `qr` and
+`feed`. The bridge prints each line with the **printer's own commands and
+fonts** — nothing is turned into HTML, a PDF or a picture — and wraps text to
+the paper: 32 characters on 58mm, 42 or 48 on 80mm. The same receipt prints
+correctly on every paper width.
 
-Why this format, and not an image or HTML page of the bill:
+| `ReceiptBuilder` method | Prints |
+| --- | --- |
+| `text(text, options?)` | Text, wrapped at word boundaries. `options`: `align`, `bold`, `underline`, `invert`, `size`, `indent` |
+| `center(text, options?)` | Centred text |
+| `row(left, right, options?)` | Label left, value right; a long label wraps beside the value |
+| `item({ name, total, qty?, unitPrice?, notes? })` | `2 x Latte ..... 9.00`, then unit price and notes indented |
+| `total(label, value, { emphasis? })` | A bold, double-height total (`emphasis: false` for a plain row) |
+| `banner(text)` | White-on-black label, e.g. `PAID`, `REPRINT` |
+| `rule(style?)` | `-----` (`single`) or `=====` (`double`) across the paper |
+| `qr(data, label?, size?)` | A centred QR code (`small`/`medium`/`large`) |
+| `feed(lines?)` | Blank lines |
+| `build()` | `{ blocks }` — send it with `printReceipt()`, or in a print job |
 
-| | ReceiptLine (this SDK) | A picture / HTML of the bill |
-| --- | --- | --- |
-| Sharpness | Printer's own fonts, crisp | Blurry edges, thin text |
-| Size on 58mm paper | Laid out for 32 columns | An 80mm design shrunk down |
-| Data sent | ~2–5 KB | 50–500 KB |
-| Speed | Instant | Rendering first |
-| Same output on every brand | Yes (ESC/POS, Epson, Star, Citizen…) | Depends on the driver |
+Sizes: `normal`, `wide` (double width), `tall` (double height), `large` (both).
+
+### Preview exactly what prints
+
+`layoutReceipt(blocks, columns)` is the bridge's own layout code. It returns
+the lines exactly as the printer prints them, so your on-screen preview always
+matches the paper:
+
+```js
+import { layoutReceipt } from 'pos-hardware-bridge';
+
+const columns = (await bridge.printers()).find((p) => p.id === 'receipt')?.paperWidthChars ?? 42;
+for (const line of layoutReceipt(bill.build().blocks, columns)) {
+  if (line.kind === 'line') console.log(line.text);   // also: align, bold, size, invert
+  if (line.kind === 'qr') console.log(`[QR ${line.data}]`);
+}
+```
 
 **Rules every POS should follow**
 
 1. **Format money yourself** and pass strings (`'LKR 1,250.00'`): the bridge
    prints what you send.
-2. **Don't assume a paper width.** The builder sizes columns relative to the
-   line, so one receipt prints right on 58mm (32 characters), 80mm (42/48)
-   and A4.
-3. **Put values on the right with `row()` / `total()`.** The value's column is
-   sized to fit it, so dates and amounts never wrap.
-4. **Keep it to text, rules, QR codes and barcodes.** Use `image()` only for a
-   small black-and-white logo.
-5. **Leave the cut to the bridge.** Each printer's settings decide full cut,
-   partial cut or tear-off feed. Use `cut()` only between tickets in one job.
-6. **Pick printers by API name** (`receipt`, `kitchen`, `invoice`), not by
+2. **Don't assume a paper width** or pad with spaces — use `row()` and `rule()`.
+3. **Keep the right-hand values short** (amounts, dates, references).
+4. **Leave the cut to the bridge.** Each printer's settings decide full cut,
+   partial cut or tear-off feed.
+5. **Pick printers by API name** (`receipt`, `kitchen`, `invoice`), not by
    device. The shop maps names to printers in the bridge.
 
-## Building receipts
+## ReceiptLine receipts (alternative)
+
+The SDK can also write **[ReceiptLine](https://github.com/receiptline/receiptline)**
+documents (an open "Markdown for receipts"), which add barcodes and logos.
+Build them with `receipt()` and print with `bridge.print()`:
+
+```js
+import { receipt } from 'pos-hardware-bridge';
+
+await bridge.print(
+  receipt().title('My Shop').row('Bill', '#1042').barcode('1042', { type: 'code128' }),
+);
+```
+
+### Building ReceiptLine receipts
 
 | Method | Prints |
 | --- | --- |
@@ -103,10 +137,11 @@ const bridge = new BridgeClient({
 
 | Method | Does |
 | --- | --- |
-| `print(receipt, { printer?, copies?, cut?, title? })` | Print a receipt |
-| `preview(receipt, { printer? })` | `{ svg, cpl }`: the receipt exactly as it will print, for your screen |
+| `printReceipt(receipt, { printer?, copies?, cut?, title? })` | Print a line-by-line receipt (`ReceiptBuilder` or `{ blocks }`) |
+| `print(receipt, { printer?, copies?, cut?, title? })` | Print a ReceiptLine receipt |
+| `preview(receipt, { printer? })` | `{ svg, cpl }`: a ReceiptLine receipt as it will print, for your screen |
 | `printDocument({ html } \| { pdfBase64 }, { printer?, paperSize?, landscape?, copies? })` | Print an A4/A5 invoice |
-| `printPage(html, { printer?, format?, copies?, title? })` | Print a ready-made HTML bill (thermal printers print it as an image) |
+| `printPage(html, { printer?, format?, copies?, title? })` | Print a ready-made HTML bill |
 | `printTestPage(printer?)` | The bridge's test page |
 | `printers()` | Printers with API names and live status |
 | `status()` | Plain-language status to show the cashier |
@@ -122,7 +157,7 @@ isn't running.
 
 ```js
 try {
-  await bridge.print(bill);
+  await bridge.printReceipt(bill);
 } catch (err) {
   showToast(err.message);              // already cashier-friendly
   if (err.unreachable) offerBrowserPrint();
@@ -137,7 +172,7 @@ The bridge owns the printer setup. Your POS just lists what's there:
 const printers = await bridge.printers();
 // [{ id: 'receipt', name: 'Front counter', kind: 'receipt', isDefault: true, ready: true, status: {…} }, …]
 const choices = printers.map((p) => ({ value: p.id, label: `${p.name}${p.ready ? '' : ` (${p.status?.title})`}` }));
-await bridge.print(bill, { printer: chosenId }); // or leave printer out for the default
+await bridge.printReceipt(bill, { printer: chosenId }); // or leave printer out for the default
 ```
 
 ### Printing from tablets and phones
@@ -160,8 +195,8 @@ apps can find bridges with mDNS (`_pos-bridge._tcp`). A web page served over
 
 **Through your backend (any network):** implement the
 [print station protocol](https://github.com/Thisarahetz/pos-hardware-bridge/blob/master/docs/print-station.openapi.yaml)
-on your server, pair the bridge with it once, and queue the same ReceiptLine
-document (`String(receipt)`) as a print job.
+on your server, pair the bridge with it once, and queue the same receipt
+(`bill.build()`) as a print job's `receipt`.
 
 Full API reference: [openapi.yaml](https://github.com/Thisarahetz/pos-hardware-bridge/blob/master/docs/openapi.yaml),
 or `http://127.0.0.1:9191/docs` on any computer running the bridge.

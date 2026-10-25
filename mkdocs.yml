@@ -1,0 +1,101 @@
+site_name: POS Hardware Bridge
+site_description: Print receipts, kitchen tickets and A4 invoices from any POS on any thermal printer — a free, open-source tray app with a local HTTP API.
+site_url: https://thisarahetz.github.io/pos-hardware-bridge/
+site_author: Thisara Hettikankanam
+repo_url: https://github.com/Thisarahetz/pos-hardware-bridge
+repo_name: Thisarahetz/pos-hardware-bridge
+edit_uri: edit/master/website/
+copyright: MIT License · Copyright © 2026 Thisara Hettikankanam
+docs_dir: website
+exclude_docs: |
+  requirements.txt
+
+theme:
+  name: material
+  logo: assets/icon.png
+  favicon: assets/icon.png
+  icon:
+    repo: fontawesome/brands/github
+    edit: material/pencil
+  palette:
+    - media: "(prefers-color-scheme: light)"
+      scheme: default
+      primary: blue
+      accent: blue
+      toggle:
+        icon: material/weather-night
+        name: Dark mode
+    - media: "(prefers-color-scheme: dark)"
+      scheme: slate
+      primary: blue
+      accent: blue
+      toggle:
+        icon: material/weather-sunny
+        name: Light mode
+  features:
+    - navigation.tabs
+    - navigation.sections
+    - navigation.top
+    - navigation.footer
+    - navigation.indexes
+    - search.suggest
+    - search.highlight
+    - content.code.copy
+    - content.tabs.link
+    - content.action.edit
+    - toc.follow
+
+markdown_extensions:
+  - admonition
+  - attr_list
+  - md_in_html
+  - tables
+  - toc:
+      permalink: true
+  - pymdownx.details
+  - pymdownx.highlight:
+      anchor_linenums: true
+  - pymdownx.inlinehilite
+  - pymdownx.snippets:
+      base_path: [.]
+      check_paths: true
+  - pymdownx.superfences:
+      custom_fences:
+        - name: mermaid
+          class: mermaid
+          format: !!python/name:pymdownx.superfences.fence_code_format
+  - pymdownx.tabbed:
+      alternate_style: true
+  - pymdownx.emoji:
+      emoji_index: !!python/name:material.extensions.emoji.twemoji
+      emoji_generator: !!python/name:material.extensions.emoji.to_svg
+
+extra:
+  social:
+    - icon: fontawesome/brands/github
+      link: https://github.com/Thisarahetz/pos-hardware-bridge
+    - icon: fontawesome/brands/npm
+      link: https://www.npmjs.com/package/pos-hardware-bridge
+
+nav:
+  - Home: index.md
+  - Get started:
+      - Install: getting-started/install.md
+      - Set up printers: getting-started/setup.md
+      - Your first print: getting-started/first-print.md
+  - Guides:
+      - Receipts, line by line: guides/receipts.md
+      - Printer settings: guides/printers.md
+      - A4 invoices & HTML pages: guides/documents.md
+      - Phones & tablets: guides/devices.md
+      - Print station (POS backends): guides/print-station.md
+      - Card payments: guides/payments.md
+      - Best practices: guides/best-practices.md
+  - SDK: sdk.md
+  - API:
+      - Overview: api.md
+      - Full reference: reference/index.html
+  - Help:
+      - Troubleshooting: troubleshooting.md
+      - Security: security.md
+      - Contributing: contributing.md

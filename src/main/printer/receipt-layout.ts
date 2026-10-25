@@ -1,9 +1,10 @@
 /**
- * Receipt layout — SHARED FILE. An identical copy lives in the POS frontend
- * (AI-POS-FE-/lib/pos/receipt-layout.ts), where it draws the on-screen preview.
- * The bridge prints exactly the lines this produces and the POS previews
- * exactly the same lines, so the preview always matches the paper.
- * Change both copies together (no imports, so the file can be copied as is).
+ * Receipt layout — SHARED FILE. The bridge prints exactly the lines this
+ * produces, and POS apps preview exactly the same lines, so a preview always
+ * matches the paper. Identical copies (CI checks they match):
+ *   - src/main/printer/receipt-layout.ts   the bridge (source of truth)
+ *   - packages/sdk/src/layout.ts            the `pos-hardware-bridge` npm package
+ * It has no imports, so it can be copied into any TypeScript project as is.
  *
  * A receipt is a list of blocks (text, row, rule, qr, feed). `layoutReceipt`
  * turns them into lines exactly `width` characters wide (32 on 58mm paper,

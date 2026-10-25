@@ -1,0 +1,21 @@
+name: Feature request
+description: Suggest a printer, receipt feature or API change
+labels: [enhancement]
+body:
+  - type: textarea
+    id: problem
+    attributes:
+      label: What do you want to do?
+      description: The problem you're trying to solve, in your POS or shop.
+    validations:
+      required: true
+  - type: textarea
+    id: idea
+    attributes:
+      label: How could the bridge help?
+      description: An API shape, setting or behaviour you have in mind.
+  - type: input
+    id: printer
+    attributes:
+      label: Hardware involved
+      placeholder: "Epson TM-T20III, 80mm, network"

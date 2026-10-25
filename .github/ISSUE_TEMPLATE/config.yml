@@ -1,0 +1,8 @@
+blank_issues_enabled: false
+contact_links:
+  - name: Documentation
+    url: https://thisarahetz.github.io/pos-hardware-bridge/
+    about: Install, set up printers, connect your POS, API reference and troubleshooting.
+  - name: Report a security vulnerability
+    url: https://github.com/Thisarahetz/pos-hardware-bridge/security/advisories/new
+    about: Please report security problems privately.

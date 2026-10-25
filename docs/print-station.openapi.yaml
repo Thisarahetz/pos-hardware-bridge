@@ -271,14 +271,25 @@ components:
       type: object
       required: [id, kind, copies]
       description: |
-        Send `receiptline` (sharpest, printed in the printer's own fonts) or
-        `html`. `kind: test` prints the bridge's test page and needs neither.
+        Send `receipt` (line by line — recommended for thermal printers, printed
+        with the printer's own commands and fonts), `html` (A4/A5 pages) or
+        `receiptline`. `kind: test` prints the bridge's test page and needs none.
       properties:
         id: { type: string, description: Unique; the bridge uses it to never print twice. }
         kind: { type: string, enum: [bill, document, test] }
         printer: { type: string, nullable: true, description: 'A printer `id` from the heartbeat; null = the default printer for the format.' }
+        receipt:
+          type: object
+          nullable: true
+          required: [blocks]
+          description: 'The receipt line by line: the same `blocks` as `POST /print/receipt` in the bridge API (`text`, `row`, `rule`, `qr`, `feed`; max 600).'
+          properties:
+            blocks:
+              type: array
+              maxItems: 600
+              items: { type: object, required: [type], properties: { type: { type: string, enum: [text, row, rule, qr, feed] } }, additionalProperties: true }
         receiptline: { type: string, nullable: true, description: 'A ReceiptLine document (see the bridge API docs).' }
-        html: { type: string, nullable: true, description: A complete HTML page. Thermal printers print it as an image; scripts are off and nothing is downloaded. }
+        html: { type: string, nullable: true, description: 'A complete HTML page, for A4/A5 printers (a thermal printer prints it through its driver or as an image). Scripts are off and nothing is downloaded.' }
         format: { type: string, nullable: true, enum: ['80mm', '58mm', a4, a5, null], description: 'For `html`: the paper the page was laid out for.' }
         title: { type: string, nullable: true, maxLength: 120, example: 'Bill #1042' }
         copies: { type: integer, minimum: 1, maximum: 5, default: 1 }
@@ -290,6 +301,7 @@ components:
         name: { type: string, maxLength: 80, example: Front counter }
         kind: { type: string, enum: [receipt, document] }
         paper: { type: string, maxLength: 20, example: 80mm, description: '`58mm`, `80mm`, or a sheet size such as `A4`.' }
+        columns: { type: integer, minimum: 16, maximum: 64, example: 42, description: 'Receipt printers: characters per line (32 on 58mm, 42 or 48 on 80mm). Lay previews out at this width.' }
         level: { type: string, enum: [ok, warning, error, off] }
         title: { type: string, maxLength: 120, example: Ready }
         detail: { type: string, maxLength: 240 }

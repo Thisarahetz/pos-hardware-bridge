@@ -4,3 +4,6 @@ release/
 *.log
 .DS_Store
 packages/sdk/dist/
+site/
+website/reference/
+.venv/

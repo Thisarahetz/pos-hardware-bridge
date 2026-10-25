@@ -1,4 +1,6 @@
 import type { Receipt } from './receipt.js';
+import type { ReceiptDocument } from './layout.js';
+import { ReceiptBuilder } from './lines.js';
 
 /**
  * Talk to POS Hardware Bridge from a browser POS, Node or Electron: on this
@@ -212,7 +214,17 @@ export class BridgeClient {
     return this.request('GET', '/status');
   }
 
-  /** Print a receipt (a Receipt from the builder, or ReceiptLine text). */
+  /**
+   * Print a receipt line by line (recommended for thermal printers): a
+   * ReceiptBuilder or its `build()` result. The bridge prints each line with
+   * the printer's own commands and wraps text to the paper's width.
+   */
+  printReceipt(receipt: ReceiptDocument | ReceiptBuilder, options: PrintOptions = {}): Promise<PrintResult> {
+    const { blocks } = receipt instanceof ReceiptBuilder ? receipt.build() : receipt;
+    return this.request('POST', '/print/receipt', { blocks, ...options });
+  }
+
+  /** Print a ReceiptLine receipt (a Receipt from receipt(), or ReceiptLine text). */
   print(receipt: Doc, options: PrintOptions = {}): Promise<PrintResult> {
     return this.request('POST', '/print/receiptline', { document: String(receipt), ...options });
   }

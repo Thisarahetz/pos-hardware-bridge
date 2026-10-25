@@ -2,7 +2,28 @@
   "name": "pos-hardware-bridge",
   "version": "1.0.0",
   "private": true,
-  "description": "Desktop tray app exposing a local HTTP/WebSocket API for receipt printers and payment terminals, for use by any browser-based POS (GlowDesk, SmartPOS, Restaurant POS, etc.)",
+  "description": "Print receipts, kitchen tickets and A4 invoices from any POS — web, desktop or mobile — on any ESC/POS or Star thermal printer. A tray app with a local HTTP API, SDK and print-station protocol.",
+  "license": "MIT",
+  "homepage": "https://thisarahetz.github.io/pos-hardware-bridge/",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/Thisarahetz/pos-hardware-bridge.git"
+  },
+  "bugs": {
+    "url": "https://github.com/Thisarahetz/pos-hardware-bridge/issues"
+  },
+  "keywords": [
+    "pos",
+    "point-of-sale",
+    "receipt-printer",
+    "thermal-printer",
+    "escpos",
+    "star",
+    "electron",
+    "printing",
+    "kitchen-printer",
+    "webusb-alternative"
+  ],
   "main": "dist/main/index.js",
   "scripts": {
     "build": "tsc -p tsconfig.json",
