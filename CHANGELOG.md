@@ -13,6 +13,8 @@ All notable changes to POS Hardware Bridge. Versions follow
 - `receipt-layout.ts`, the layout code shared with the SDK so POS apps can
   preview receipts exactly as they print.
 - Print stations report each receipt printer's characters per line (`columns`).
+- Docs: *Printer setup in your POS* guide, with a copy-ready printing module
+  and React settings page in `examples/pos-setup/`.
 - Receipt printers with their maker's driver can print HTML bills through it
   (**Print bills**: Auto / Printer driver / Direct).
 - SDK 1.1.0: `ReceiptBuilder`, `BridgeClient.printReceipt()` and `layoutReceipt()`.

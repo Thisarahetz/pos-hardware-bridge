@@ -126,6 +126,8 @@ A `400` lists every problem with your request in `details`. See
 
 ## Next
 
+- [Printer setup in your POS](../guides/pos-setup.md) — a settings page to
+  connect the POS, choose printers and test print, ready to copy.
 - [Receipts, line by line](../guides/receipts.md) — every line type, a full bill
   and previews.
 - [Best practices](../guides/best-practices.md) — how to build printing into a

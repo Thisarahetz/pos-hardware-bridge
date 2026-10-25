@@ -84,6 +84,7 @@ nav:
       - Set up printers: getting-started/setup.md
       - Your first print: getting-started/first-print.md
   - Guides:
+      - Printer setup in your POS: guides/pos-setup.md
       - Receipts, line by line: guides/receipts.md
       - Printer settings: guides/printers.md
       - A4 invoices & HTML pages: guides/documents.md
