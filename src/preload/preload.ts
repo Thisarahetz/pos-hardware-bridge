@@ -2,6 +2,8 @@ import { contextBridge, ipcRenderer, type IpcRendererEvent } from 'electron';
 import type { BridgeConfig, BridgeStatus, PrinterKind, PrinterProfile } from '../main/types';
 import type { ConfigPatch } from '../main/config-store';
 import type { DiscoveredPrinter } from '../main/printer/discovery';
+import type { CloudState } from '../main/cloud/cloud-client';
+import type { LanState, PairingCode } from '../main/lan/devices';
 
 type Result<T = unknown> = { ok: true; value?: T } | { ok: false; error: string };
 
@@ -22,6 +24,7 @@ contextBridge.exposeInMainWorld('bridge', {
   updateConfig: (patch: ConfigPatch): Promise<BridgeConfig> => ipcRenderer.invoke('config:update', patch),
   regenerateToken: (): Promise<string> => ipcRenderer.invoke('config:regenerate-token'),
   openLogs: (): Promise<void> => ipcRenderer.invoke('app:open-logs'),
+  openDocs: (): Promise<void> => ipcRenderer.invoke('app:open-docs'),
   copy: (text: string): Promise<void> => ipcRenderer.invoke('clipboard:write', text),
 
   discoverPrinters: (): Promise<Result<DiscoveredPrinter[]>> => ipcRenderer.invoke('printers:discover'),
@@ -39,5 +42,24 @@ contextBridge.exposeInMainWorld('bridge', {
     ipcRenderer.invoke('devices:list-serial-ports', includeSystemPorts),
 
   testPrint: (id?: string): Promise<Result> => ipcRenderer.invoke('test:print', id),
+
+  getCloud: (): Promise<CloudState> => ipcRenderer.invoke('cloud:get'),
+  onCloud: (listener: (state: CloudState) => void): void => {
+    ipcRenderer.on('cloud:state', (_evt: IpcRendererEvent, s: CloudState) => listener(s));
+  },
+  pairCloud: (serverUrl: string, code: string, name: string): Promise<Result<CloudState>> =>
+    ipcRenderer.invoke('cloud:pair', serverUrl, code, name),
+  disconnectCloud: (): Promise<Result<CloudState>> => ipcRenderer.invoke('cloud:disconnect'),
+  defaultStationName: (): Promise<string> => ipcRenderer.invoke('cloud:default-name'),
   testTerminalCharge: (): Promise<Result> => ipcRenderer.invoke('test:terminal-charge'),
+
+  getLan: (): Promise<LanState> => ipcRenderer.invoke('lan:get'),
+  onLan: (listener: (state: LanState) => void): void => {
+    ipcRenderer.on('lan:changed', (_evt: IpcRendererEvent, s: LanState) => listener(s));
+  },
+  setLanEnabled: (enabled: boolean): Promise<Result<LanState>> => ipcRenderer.invoke('lan:set-enabled', enabled),
+  startPairing: (): Promise<Result<PairingCode>> => ipcRenderer.invoke('lan:start-pairing'),
+  cancelPairing: (): Promise<Result> => ipcRenderer.invoke('lan:cancel-pairing'),
+  removeDevice: (id: string): Promise<Result> => ipcRenderer.invoke('lan:remove-device', id),
+  renameDevice: (id: string, name: string): Promise<Result> => ipcRenderer.invoke('lan:rename-device', id, name),
 });

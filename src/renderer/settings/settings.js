@@ -77,7 +77,8 @@ function renderStatus(status) {
   const apiUp = status.api.running !== false;
   $('apiPill').classList.toggle('live', apiUp);
   $('apiPill').classList.toggle('down', !apiUp);
-  $('apiPill').textContent = `${apiUp ? 'API running' : 'API stopped'} · ${status.api.url.replace('http://', '')}`;
+  $('apiPill').textContent = apiUp ? 'Running' : 'Not running';
+  $('apiPill').title = status.api.url;
   $('apiError').hidden = apiUp;
   $('apiError').textContent = apiUp ? '' : `Your POS can’t reach the bridge: ${status.api.error ?? 'unknown error'}`;
 
@@ -123,24 +124,51 @@ async function changePrinter(id, patch, message = 'Saved') {
   toast(message);
 }
 
+const ENCODINGS = [
+  ['multilingual', 'Multilingual (English, European)'],
+  ['cp1252', 'Western European'],
+  ['cp852', 'Central European'],
+  ['cp866', 'Cyrillic'],
+  ['cp860', 'Portuguese'],
+  ['cp863', 'French Canadian'],
+  ['cp865', 'Nordic'],
+  ['tis620', 'Thai'],
+  ['cp932', 'Japanese'],
+  ['gb18030', 'Chinese (Simplified)'],
+  ['big5', 'Chinese (Traditional)'],
+  ['ksc5601', 'Korean'],
+];
+
+function encodingSelect(p) {
+  const select = el('select', { 'aria-label': 'Character set' }, ...ENCODINGS.map(([value, label]) => el('option', { value }, label)));
+  select.value = p.encoding ?? 'multilingual';
+  select.addEventListener('change', () => changePrinter(p.id, { encoding: select.value }, 'Character set saved'));
+  return select;
+}
+
 function printerSettings(p, isDefault) {
   const nameInput = el('input', { type: 'text', value: p.name });
   nameInput.addEventListener('change', () => nameInput.value.trim() && changePrinter(p.id, { name: nameInput.value.trim() }, 'Name saved'));
   const idInput = el('input', { type: 'text', value: p.id, spellcheck: 'false' });
   idInput.addEventListener('change', () => {
     if (!idInput.value.trim() || idInput.value.trim() === p.id) return;
-    if (confirm(`Change the API name to "${idInput.value.trim()}"? POS apps that use "${p.id}" must be updated.`)) {
-      changePrinter(p.id, { id: idInput.value.trim() }, 'API name changed');
+    if (confirm(`Change the POS name to "${idInput.value.trim()}"? Any POS that prints to "${p.id}" must be changed too.`)) {
+      changePrinter(p.id, { id: idInput.value.trim() }, 'POS name changed');
     } else idInput.value = p.id;
   });
 
   const rows = [
-    el('div', { class: 'grid2' }, el('label', {}, 'Name', nameInput), el('label', {}, 'API name (used by the POS)', idInput)),
+    el('div', { class: 'grid2' }, el('label', {}, 'Name', nameInput), el('label', {}, 'Name in your POS (short, no spaces)', idInput)),
   ];
   if (p.kind === 'receipt') {
     rows.push(
       option('Paper size', 'Run a test print — the number line should reach the right edge.', segmented(RECEIPT_WIDTHS, p.paperWidthChars, (v) => changePrinter(p.id, { paperWidthChars: Number(v) }, 'Paper size saved'))),
       option('Printer language', 'Most printers use ESC/POS. Choose Star only for Star Micronics printers.', segmented([['epson', 'ESC/POS'], ['star', 'Star']], p.language, (v) => changePrinter(p.id, { language: v }, 'Printer language saved'))),
+      option(
+        'Character set',
+        'Which letters the printer prints. “Multilingual” covers English and most European languages.',
+        encodingSelect(p),
+      ),
       option(
         'Paper cutter',
         'Does this printer cut the paper by itself? Choose “No cutter” if the cashier tears receipts off by hand.',
@@ -148,6 +176,17 @@ function printerSettings(p, isDefault) {
           changePrinter(p.id, v === 'none' && (p.feedLines ?? 3) < 4 ? { cutter: v, feedLines: 4 } : { cutter: v }, 'Cutter setting saved'),
         ),
       ),
+      ...(p.connection.type === 'system'
+        ? [
+            option(
+              'Print bills',
+              'Printer driver prints the bill exactly as designed in the POS (logo, fonts, layout), sharp — needs the printer maker’s driver installed on this computer. Direct prints plain text in the printer’s own fonts and works with any printer. Auto uses the driver when one is installed.',
+              segmented([['auto', 'Auto'], ['driver', 'Printer driver'], ['direct', 'Direct']], p.billPrint ?? 'auto', (v) =>
+                changePrinter(p.id, { billPrint: v }, 'Bill printing saved'),
+              ),
+            ),
+          ]
+        : []),
       option(
         'QR codes',
         'Print as image works on every printer. Built-in is sharper and faster, but only if your printer supports it. Use Test print to check.',
@@ -252,7 +291,7 @@ function renderPrinterCards() {
               el('span', { class: 'badges' }, el('span', { class: 'badge kind' }, `${KIND_LABEL[p.kind]} · ${detail}`), isDefault ? el('span', { class: 'badge' }, p.kind === 'receipt' ? 'Default for receipts' : 'Default for documents') : null),
             ),
             el('div', { class: 'small' }, el('strong', {}, status.title), status.detail ? ` — ${status.detail}` : ''),
-            el('div', { class: 'muted small' }, 'API name: ', el('code', {}, p.id)),
+            el('div', { class: 'muted small' }, 'Name in your POS: ', el('code', {}, p.id)),
           ),
           el(
             'div',
@@ -317,7 +356,7 @@ async function addFound(button, p, kind) {
   openSettings.add(res.value.id);
   renderConfig();
   renderStatus(await api.refreshStatus());
-  toast(`Added “${res.value.name}” as API name "${res.value.id}". Try a test print.`);
+  toast(`Added “${res.value.name}”. Try a test print.`);
 }
 
 function renderPrinters() {
@@ -524,15 +563,15 @@ $('toggleToken').addEventListener('click', (e) => {
 $('savePort').addEventListener('click', () => {
   const port = Number($('port').value);
   if (!(port >= 1024 && port <= 65535)) return toast('Port must be between 1024 and 65535');
-  return saveConfig({ server: { port } }, `API moved to port ${port} — update your POS`);
+  return saveConfig({ server: { port } }, `Moved to port ${port}. Update the address in your POS.`);
 });
 
 $('regenToken').addEventListener('click', async () => {
-  if (!confirm('Make a new token? Your POS will stop working until you paste the new token into it.')) return;
+  if (!confirm('Make a new password? Your POS will stop printing until you paste the new password into it.')) return;
   await api.regenerateToken();
   config = await api.getConfig();
   renderConfig();
-  toast('New token created — copy it into your POS');
+  toast('New password made. Copy it into your POS.');
 });
 
 $('launchAtLogin').addEventListener('change', (e) =>
@@ -550,11 +589,214 @@ api.onConfig((next) => {
 });
 api.onNotice(toast);
 
+
+// ---------- connect your POS: three ways ----------
+
+const WAY_KEY = 'connectWay';
+
+function showWay(way, byUser = false) {
+  for (const tab of document.querySelectorAll('.way')) tab.setAttribute('aria-selected', String(tab.dataset.way === way));
+  for (const panel of document.querySelectorAll('.way-panel')) panel.hidden = panel.dataset.panel !== way;
+  if (byUser) {
+    try {
+      localStorage.setItem(WAY_KEY, way);
+    } catch {
+      // storage unavailable: just don't remember
+    }
+  }
+}
+
+for (const tab of document.querySelectorAll('.way')) tab.addEventListener('click', () => showWay(tab.dataset.way, true));
+
+function setWayStatus(id, text, level) {
+  const node = $(id);
+  node.textContent = text || '';
+  node.dataset.level = level || '';
+}
+
+/** Open the tab the shop is most likely to need: the one remembered, or the one in use. */
+function pickInitialWay(cloud, lanState) {
+  let saved = null;
+  try {
+    saved = localStorage.getItem(WAY_KEY);
+  } catch {
+    // ignore
+  }
+  if (saved) return showWay(saved);
+  if (cloud.state !== 'off') return showWay('online');
+  if (lanState.enabled) return showWay('wifi');
+  showWay('local');
+}
+
+// ---------- phones & tablets (shop Wi-Fi) ----------
+
+let lan = null;
+let lanTimer = null;
+
+function ago(iso) {
+  if (!iso) return 'never';
+  const s = Math.max(0, Math.round((Date.now() - new Date(iso).getTime()) / 1000));
+  if (s < 90) return 'just now';
+  if (s < 3600) return `${Math.round(s / 60)} min ago`;
+  if (s < 86400) return `${Math.round(s / 3600)} h ago`;
+  return new Date(iso).toLocaleDateString();
+}
+
+function renderLanCountdown() {
+  if (!lan?.pairing) return;
+  const left = Math.max(0, Math.round((new Date(lan.pairing.expiresAt).getTime() - Date.now()) / 1000));
+  $('lanCodeExpiry').textContent = left > 0 ? `Works for ${Math.floor(left / 60)}:${String(left % 60).padStart(2, '0')}, for one device` : 'Expired';
+}
+
+function renderLan(next) {
+  lan = next;
+  const on = lan.enabled;
+  const online = lan.addresses.length > 0;
+  $('lanEnabled').checked = on;
+  $('lanBody').hidden = !on;
+  $('lanDetail').textContent = on
+    ? `${lan.devices.length} device${lan.devices.length === 1 ? '' : 's'} connected.`
+    : 'Off. Only this computer can use the printers.';
+  setWayStatus('wayWifiStatus', on ? `● ${lan.devices.length} connected` : '', on ? 'ok' : '');
+  $('lanNoNetwork').hidden = !on || online;
+  $('lanAddress').value = lan.addresses[0] ?? '';
+  $('lanAddressText').textContent = lan.addresses[0] ?? '—';
+  $('lanOtherAddresses').textContent = lan.addresses.length > 1 ? `If that doesn’t work, try: ${lan.addresses.slice(1).join(' or ')}` : '';
+
+  $('lanPairing').hidden = !lan.pairing;
+  $('lanStartPairing').hidden = Boolean(lan.pairing) || !online;
+  if (lan.pairing) $('lanCode').textContent = `${lan.pairing.code.slice(0, 3)} ${lan.pairing.code.slice(3)}`;
+  clearInterval(lanTimer);
+  if (lan.pairing) {
+    renderLanCountdown();
+    lanTimer = setInterval(renderLanCountdown, 1000);
+  }
+
+  const list = $('lanDevices');
+  list.replaceChildren();
+  if (!lan.devices.length) list.append(el('li', { class: 'empty' }, 'No devices yet. Click “Get a code” to add one.'));
+  for (const d of lan.devices) {
+    list.append(
+      el('li', {},
+        el('span', { class: 'device-icon', 'aria-hidden': 'true' }, '📱'),
+        el('div', { class: 'device-main' },
+          el('div', { class: 'device-name' }, d.name),
+          el('div', { class: 'device-sub' }, `Last printed or checked ${ago(d.lastSeenAt)}`),
+        ),
+        el('button', {
+          class: 'ghost',
+          onclick: async () => {
+            const name = prompt('Name for this device', d.name);
+            if (name == null) return;
+            const res = await api.renameDevice(d.id, name);
+            if (!res.ok) toast(res.error);
+          },
+        }, 'Rename'),
+        el('button', {
+          class: 'link danger',
+          onclick: async () => {
+            if (!confirm(`Remove “${d.name}”? It won’t be able to print here any more.`)) return;
+            const res = await api.removeDevice(d.id);
+            toast(res.ok ? `${d.name} removed` : res.error);
+          },
+        }, 'Remove'),
+      ),
+    );
+  }
+}
+
+$('lanEnabled').addEventListener('change', async (e) => {
+  const res = await api.setLanEnabled(e.target.checked);
+  if (!res.ok) {
+    e.target.checked = !e.target.checked;
+    return toast(res.error);
+  }
+  renderLan(res.value);
+  toast(e.target.checked ? 'Turned on. If your computer asks to allow the bridge on the network, click Allow.' : 'Turned off. Only this computer can print now.');
+});
+
+$('lanStartPairing').addEventListener('click', async () => {
+  const res = await api.startPairing();
+  if (!res.ok) return toast(res.error);
+  renderLan(await api.getLan());
+});
+
+$('lanCancelPairing').addEventListener('click', () => api.cancelPairing());
+
+api.onLan(renderLan);
+
+// ---------- with a code (print station for an online POS) ----------
+
+const CLOUD_LEVEL = { connected: 'ok', connecting: 'warning', offline: 'error', removed: 'error', off: 'off' };
+const CLOUD_TITLE = {
+  connected: (c) => `Connected to ${c.shopName}`,
+  connecting: () => 'Connecting…',
+  offline: () => 'Can’t reach your POS right now',
+  removed: () => 'Removed',
+  off: () => 'Not connected',
+};
+
+function renderCloud(c) {
+  const linked = c.state === 'connected' || c.state === 'connecting' || c.state === 'offline';
+  $('cloudLinked').hidden = !linked;
+  $('cloudForm').hidden = linked;
+  $('cloudDot').dataset.level = CLOUD_LEVEL[c.state] ?? 'off';
+  $('cloudTitle').textContent = CLOUD_TITLE[c.state]?.(c) ?? 'Not connected';
+  $('cloudDetail').textContent = `${c.message}${c.stationName ? ` This computer is called “${c.stationName}”.` : ''}`;
+  $('cloudRemoved').hidden = c.state !== 'removed';
+  $('cloudRemoved').textContent = c.state === 'removed' ? c.message : '';
+  setWayStatus(
+    'wayOnlineStatus',
+    c.state === 'connected' ? '● Connected' : c.state === 'connecting' ? '● Connecting' : c.state === 'offline' ? '● Offline' : '',
+    CLOUD_LEVEL[c.state],
+  );
+  if (!$('cloudServer').value && c.serverUrl) $('cloudServer').value = c.serverUrl.replace(/^https?:\/\//, '').replace(/\/api\/v\d+$/, '');
+  const job = c.lastJob;
+  $('cloudLastJob').textContent = job
+    ? `${job.ok ? '✓ Printed' : '✗ Didn’t print'} “${job.title}” at ${new Date(job.at).toLocaleTimeString()}${job.ok ? '' : `: ${job.error}`}`
+    : 'Nothing printed yet. Print a bill from any device to test.';
+}
+
+$('cloudCode').addEventListener('input', (e) => {
+  const digits = e.target.value.replace(/\D/g, '').slice(0, 6);
+  e.target.value = digits.length > 3 ? `${digits.slice(0, 3)} ${digits.slice(3)}` : digits;
+});
+
+$('cloudPair').addEventListener('click', (e) =>
+  busy(e.target, 'Connecting…', async () => {
+    setResult('cloudError', '');
+    if (!$('cloudServer').value.trim()) return setResult('cloudError', 'Type your POS website address first, e.g. mypos.com', 'error');
+    if ($('cloudCode').value.replace(/\D/g, '').length !== 6) return setResult('cloudError', 'Type the 6-digit code from your POS.', 'error');
+    const res = await api.pairCloud($('cloudServer').value, $('cloudCode').value, $('cloudName').value);
+    if (!res.ok) return setResult('cloudError', res.error, 'error');
+    $('cloudCode').value = '';
+    renderCloud(res.value);
+    toast(`Connected. Every device in ${res.value.shopName ?? 'your shop'} can print here now.`);
+  }),
+);
+
+$('cloudDisconnect').addEventListener('click', async () => {
+  if (!confirm('Disconnect? Devices using your online POS will no longer be able to print on this computer.')) return;
+  const res = await api.disconnectCloud();
+  if (res.ok) renderCloud(res.value);
+  else toast(res.error);
+});
+
+api.onCloud(renderCloud);
+
+$('openDocs').addEventListener('click', () => api.openDocs());
+
 // ---------- start ----------
 
 (async () => {
   config = await api.getConfig();
   renderConfig();
   renderStatus(await api.getStatus());
+  $('cloudName').value = await api.defaultStationName();
+  const cloud = await api.getCloud();
+  const lanState = await api.getLan();
+  renderCloud(cloud);
+  renderLan(lanState);
+  pickInitialWay(cloud, lanState);
   if (config.terminal.enabled) await loadPorts();
 })();

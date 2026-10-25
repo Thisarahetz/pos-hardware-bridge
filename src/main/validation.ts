@@ -1,4 +1,4 @@
-import type { DocumentPaperSize, ReceiptModel, TerminalChargeRequest } from './types';
+import type { DocumentPaperSize, ReceiptDocument, ReceiptModel, TerminalChargeRequest } from './types';
 
 /** Returns a list of problems with a request body; empty means it's valid. */
 type Check = (body: Record<string, unknown>) => string[];
@@ -142,6 +142,127 @@ export const validatePrinterChoice = (body: unknown) =>
     checkPrinterName(b, problems);
     return problems;
   });
+export interface PageRequest {
+  html: string;
+  printer?: string;
+  format?: '80mm' | '58mm' | 'a4' | 'a5';
+  copies?: number;
+  title?: string;
+}
+
+export const validatePage = (body: unknown) =>
+  validate<PageRequest>(body, (b) => {
+    const problems: string[] = [];
+    checkPrinterName(b, problems);
+    if (!isText(b.html)) problems.push('"html" must be the page to print, as a complete HTML document');
+    if (b.format !== undefined && !['80mm', '58mm', 'a4', 'a5'].includes(b.format as string)) {
+      problems.push('"format" must be one of 80mm, 58mm, a4, a5');
+    }
+    if (b.copies !== undefined && !(Number.isInteger(b.copies) && (b.copies as number) >= 1 && (b.copies as number) <= 5)) {
+      problems.push('"copies" must be a whole number from 1 to 5');
+    }
+    if (b.title !== undefined && typeof b.title !== 'string') problems.push('"title" must be a string when given');
+    return problems;
+  });
+
+export interface ReceiptLineRequest {
+  document: string;
+  printer?: string;
+  copies?: number;
+  cut?: boolean;
+  title?: string;
+}
+
+/** ReceiptLine documents: https://github.com/receiptline/receiptline#grammar */
+export const validateReceiptLine = (body: unknown) =>
+  validate<ReceiptLineRequest>(body, (b) => {
+    const problems: string[] = [];
+    checkPrinterName(b, problems);
+    if (!isText(b.document)) {
+      problems.push('"document" must be a ReceiptLine document (see https://github.com/receiptline/receiptline#grammar)');
+    } else if ((b.document as string).length > 500_000) {
+      problems.push('"document" is too large (max 500 KB; shrink embedded images)');
+    }
+    if (b.copies !== undefined && !(Number.isInteger(b.copies) && (b.copies as number) >= 1 && (b.copies as number) <= 5)) {
+      problems.push('"copies" must be a whole number from 1 to 5');
+    }
+    if (b.cut !== undefined && typeof b.cut !== 'boolean') problems.push('"cut" must be true or false');
+    if (b.title !== undefined && typeof b.title !== 'string') problems.push('"title" must be a string when given');
+    return problems;
+  });
+
+export const MAX_RECEIPT_BLOCKS = 600;
+const BLOCK_TYPES = ['text', 'row', 'rule', 'qr', 'feed'];
+const TEXT_SIZES = ['normal', 'wide', 'tall', 'large'];
+
+/** Problems with a line-by-line receipt's "blocks"; empty means it's valid. */
+export function checkBlocks(blocks: unknown): string[] {
+  if (!Array.isArray(blocks) || blocks.length === 0) return ['"blocks" must be a non-empty array of receipt lines'];
+  if (blocks.length > MAX_RECEIPT_BLOCKS) return [`"blocks" has too many lines (max ${MAX_RECEIPT_BLOCKS})`];
+  const problems: string[] = [];
+  const isStr = (v: unknown, max = 1000) => typeof v === 'string' && v.length <= max;
+  blocks.forEach((b, i) => {
+    const at = `blocks[${i}]`;
+    if (!isObject(b) || !BLOCK_TYPES.includes(b.type as string)) {
+      problems.push(`${at}.type must be one of ${BLOCK_TYPES.join(', ')}`);
+      return;
+    }
+    if ((b.type === 'text' || b.type === 'row') && b.size !== undefined && !TEXT_SIZES.includes(b.size as string)) {
+      problems.push(`${at}.size must be one of ${TEXT_SIZES.join(', ')}`);
+    }
+    if (b.indent !== undefined && !(Number.isInteger(b.indent) && (b.indent as number) >= 0 && (b.indent as number) <= 8)) {
+      problems.push(`${at}.indent must be a whole number from 0 to 8`);
+    }
+    for (const flag of ['bold', 'underline', 'invert'] as const) {
+      if (b[flag] !== undefined && typeof b[flag] !== 'boolean') problems.push(`${at}.${flag} must be true or false`);
+    }
+    switch (b.type) {
+      case 'text':
+        if (!isStr(b.text)) problems.push(`${at}.text must be a string (max 1000 characters)`);
+        if (b.align !== undefined && !['left', 'center', 'right'].includes(b.align as string)) problems.push(`${at}.align must be left, center or right`);
+        break;
+      case 'row':
+        if (!isStr(b.left, 500)) problems.push(`${at}.left must be a string (max 500 characters)`);
+        if (!isStr(b.right, 60)) problems.push(`${at}.right must be a string (max 60 characters)`);
+        break;
+      case 'rule':
+        if (b.style !== undefined && !['single', 'double'].includes(b.style as string)) problems.push(`${at}.style must be single or double`);
+        break;
+      case 'qr':
+        if (!isText(b.data) || (b.data as string).length > 1000) problems.push(`${at}.data must be the QR content (max 1000 characters; use a short link)`);
+        if (b.label !== undefined && !isStr(b.label, 200)) problems.push(`${at}.label must be a string`);
+        if (b.size !== undefined && !['small', 'medium', 'large'].includes(b.size as string)) problems.push(`${at}.size must be small, medium or large`);
+        break;
+      case 'feed':
+        if (b.lines !== undefined && !(Number.isInteger(b.lines) && (b.lines as number) >= 1 && (b.lines as number) <= 10)) {
+          problems.push(`${at}.lines must be a whole number from 1 to 10`);
+        }
+        break;
+    }
+  });
+  return problems;
+}
+
+export interface ReceiptBlocksRequest extends ReceiptDocument {
+  printer?: string;
+  cut?: boolean;
+  copies?: number;
+  title?: string;
+}
+
+export const validateReceiptBlocks = (body: unknown) =>
+  validate<ReceiptBlocksRequest>(body, (b) => {
+    const problems: string[] = [];
+    checkPrinterName(b, problems);
+    problems.push(...checkBlocks(b.blocks));
+    if (b.copies !== undefined && !(Number.isInteger(b.copies) && (b.copies as number) >= 1 && (b.copies as number) <= 5)) {
+      problems.push('"copies" must be a whole number from 1 to 5');
+    }
+    if (b.cut !== undefined && typeof b.cut !== 'boolean') problems.push('"cut" must be true or false');
+    if (b.title !== undefined && typeof b.title !== 'string') problems.push('"title" must be a string when given');
+    return problems;
+  });
+
 export const validateCharge = (body: unknown) => validate<TerminalChargeRequest>(body, checkCharge);
 export const validateReference = (body: unknown) =>
   validate<{ reference: string }>(body, (b) => (isText(b.reference) ? [] : ['"reference" is required']));

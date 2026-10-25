@@ -8,7 +8,7 @@ export function normalizeQr(qr: string | ReceiptQrCode): Required<Pick<ReceiptQr
 const WIDTH_SHARE = { small: 0.4, medium: 0.55, large: 0.7 } as const;
 
 /** Thermal printers are 203 dpi: 58mm paper prints 384 dots, 80mm prints 576. */
-function printableDots(paperWidthChars: number): number {
+export function printableDots(paperWidthChars: number): number {
   return paperWidthChars <= 32 ? 384 : 576;
 }
 

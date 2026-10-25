@@ -6,6 +6,10 @@ on:
     branches: [master, 'feature/**']
     tags: ['v*']
 
+# A version tag publishes a GitHub Release, which installed bridges update from.
+permissions:
+  contents: write
+
 jobs:
   windows:
     runs-on: windows-latest
@@ -16,12 +20,27 @@ jobs:
           node-version: 22
           cache: npm
       - run: npm ci
-      - run: npm run dist:win -- --publish never
+      - name: Check the tag matches package.json
+        if: startsWith(github.ref, 'refs/tags/v')
+        shell: bash
+        run: test "v$(node -p "require('./package.json').version")" = "${GITHUB_REF_NAME}"
+      - name: Build installer
+        if: ${{ !startsWith(github.ref, 'refs/tags/v') }}
+        run: npm run dist:win -- --publish never
         env:
           # No code-signing certificate yet: build an unsigned installer.
           CSC_IDENTITY_AUTO_DISCOVERY: 'false'
+      - name: Build and publish release
+        if: startsWith(github.ref, 'refs/tags/v')
+        run: npm run release:win
+        env:
+          CSC_IDENTITY_AUTO_DISCOVERY: 'false'
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
       - uses: actions/upload-artifact@v4
         with:
           name: POS-Hardware-Bridge-Setup
           path: release/*.exe
           if-no-files-found: error
+      - name: Show the update files the release carries
+        shell: bash
+        run: ls -la release/*.yml release/win-unpacked/resources/app-update.yml 2>/dev/null || echo "no update files (branch build)"

@@ -224,3 +224,38 @@ pre {
 code { font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; font-size: 12px; background: var(--hover); padding: 1px 5px; border-radius: 4px; }
 .grow { flex: 1; }
 .empty-state ol { text-align: left; display: inline-block; margin: 8px 0 0; }
+.option > select { width: auto; max-width: 260px; flex: none; }
+
+/* Shop network pairing */
+.pairing { margin: 12px 0; padding: 12px 14px; border: 1px dashed var(--border); border-radius: 10px; text-align: center; }
+.pair-code { font-size: 34px; font-weight: 700; letter-spacing: 0.18em; font-variant-numeric: tabular-nums; margin: 6px 0; }
+.pairing .row { justify-content: center; }
+h4 { margin: 0 0 8px; font-size: 13px; }
+
+/* Connect your POS: three ways */
+.ways { display: grid; grid-template-columns: repeat(3, 1fr); gap: 8px; margin: 12px 0 14px; }
+.way {
+  display: flex; flex-direction: column; align-items: flex-start; gap: 2px; text-align: left;
+  white-space: normal; padding: 10px 12px; border-radius: 10px; background: var(--card);
+}
+.way[aria-selected="true"] { border-color: var(--accent); box-shadow: 0 0 0 1px var(--accent); background: color-mix(in srgb, var(--accent) 7%, var(--card)); }
+.way-icon { font-size: 20px; line-height: 1.2; }
+.way-title { font-weight: 600; }
+.way-sub { font-size: 11px; color: var(--muted); }
+.way-status { font-size: 11px; margin-top: 2px; color: var(--muted); }
+.way-status:empty { display: none; }
+.way-status[data-level="ok"] { color: var(--ok); }
+.way-status[data-level="warning"] { color: var(--warning); }
+.way-status[data-level="error"] { color: var(--error); }
+.way-panel { border-top: 1px solid var(--border); padding-top: 12px; }
+ol.how { margin: 0 0 6px; padding-left: 20px; }
+ol.how li { margin: 5px 0; line-height: 1.45; }
+.hint { color: var(--muted); font-weight: normal; }
+.inline-copy { white-space: nowrap; }
+.inline-copy code { font-size: 13px; padding: 2px 6px; border-radius: 5px; background: var(--hover); user-select: all; }
+.linked { padding: 12px 14px; border: 1px solid var(--border); border-radius: 10px; }
+.linked-head { display: flex; align-items: center; gap: 12px; }
+.linked .dot[data-level="ok"] { background: var(--ok); }
+.linked .dot[data-level="warning"] { background: var(--warning); }
+.linked .dot[data-level="error"] { background: var(--error); animation: pulse 1.6s infinite; }
+@media (max-width: 560px) { .ways { grid-template-columns: 1fr; } }

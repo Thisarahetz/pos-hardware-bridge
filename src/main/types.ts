@@ -9,6 +9,13 @@ export type PrinterConnection =
   /** A receipt printer reached directly over the network (raw port 9100). */
   | { type: 'tcp'; host: string; port: number };
 
+/** Character sets thermal printers support (ReceiptLine names). */
+export type ReceiptEncoding =
+  | 'multilingual' | 'cp437' | 'cp852' | 'cp858' | 'cp860' | 'cp863' | 'cp865' | 'cp866' | 'cp1252'
+  | 'cp932' | 'shiftjis' | 'cp936' | 'gb18030' | 'cp949' | 'ksc5601' | 'cp950' | 'big5' | 'tis620';
+
+export type BillPrintMode = 'auto' | 'driver' | 'direct';
+
 export type ReceiptCutter = 'full' | 'partial' | 'none';
 
 export type DocumentPaperSize = 'A4' | 'A5' | 'Letter' | 'Legal';
@@ -22,6 +29,8 @@ export interface PrinterProfile {
   connection: PrinterConnection;
   /** Receipt printers: command language. */
   language: 'epson' | 'star';
+  /** Receipt printers: character set for text (ReceiptLine encoding name). */
+  encoding: ReceiptEncoding;
   /** Receipt printers: characters per line (58mm ≈ 32, 80mm ≈ 42–48). */
   paperWidthChars: number;
   /** Receipt printers: what happens at the end of a receipt. Printers without a
@@ -32,6 +41,12 @@ export interface PrinterProfile {
   /** Receipt printers: print QR codes as an image (works on every printer) or
    * with the printer's own QR command (sharper/faster, not on all models). */
   qrMode: 'image' | 'native';
+  /** Receipt printers: how bills from the POS print.
+   *  - driver: the bill's own design (logo, fonts, layout) through the
+   *    printer's installed driver, which renders it sharp at full resolution.
+   *  - direct: straight to the printer, as text in its own fonts (ReceiptLine).
+   *  - auto: driver when the printer has a real driver installed, else direct. */
+  billPrint: BillPrintMode;
   /** Document printers: default paper size. */
   paperSize: DocumentPaperSize;
 }
@@ -58,6 +73,9 @@ export interface TerminalConfig {
 export interface ServerConfig {
   port: number;
   authToken: string;
+  /** Let paired phones, tablets and other tills on the shop network print here.
+   * Off: the API is reachable from this computer only (127.0.0.1). */
+  allowNetwork: boolean;
 }
 
 export interface AppSettings {
@@ -98,6 +116,8 @@ export interface ReceiptModel {
   qrCode?: string | ReceiptQrCode;
   footer?: string;
 }
+
+export type { ReceiptBlock, ReceiptDocument, ReceiptTextSize } from './printer/receipt-layout';
 
 export interface ReceiptQrCode {
   /** What the QR code contains, usually a URL. */

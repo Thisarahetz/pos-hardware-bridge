@@ -1,15 +1,16 @@
 import { printer as ThermalPrinter, types as PrinterTypes } from 'node-thermal-printer';
 import { resolvePrinter } from '../config-store';
 import type { PrinterProfile, ReceiptModel } from '../types';
-import { getBackend } from './backend';
+import { getBackend, hasGraphicsDriver } from './backend';
 import { ensureQueueReady } from './availability';
-import { money, printHtml, printPdf, receiptHtml, testPageHtml } from './document.service';
-import { nativeCellSize, normalizeQr, qrPngForReceipt } from './qr';
+import { money, printHtml, printHtmlOnRoll, printPdf, receiptHtml, testPageHtml } from './document.service';
+import { nativeCellSize, normalizeQr, printableDots, qrPngForReceipt } from './qr';
+import { renderHtmlToRaster } from './html-raster';
 import type { DocumentRequest } from '../validation';
 
-type Driver = InstanceType<typeof ThermalPrinter>;
+export type Driver = InstanceType<typeof ThermalPrinter>;
 
-function buildDriver(profile: PrinterProfile): Driver {
+export function buildDriver(profile: PrinterProfile): Driver {
   const { connection } = profile;
   return new ThermalPrinter({
     type: profile.language === 'star' ? PrinterTypes.STAR : PrinterTypes.EPSON,
@@ -24,7 +25,7 @@ function buildDriver(profile: PrinterProfile): Driver {
 }
 
 /** End of a receipt: feed paper, then cut (or leave it to tear off). */
-function finishReceipt(driver: Driver, profile: PrinterProfile, cut = true): void {
+export function finishReceipt(driver: Driver, profile: PrinterProfile, cut = true): void {
   const lines = Math.max(0, Math.min(profile.feedLines ?? 3, 12));
   for (let i = 0; i < lines; i++) driver.newLine();
   if (!cut || profile.cutter === 'none') return;
@@ -33,7 +34,7 @@ function finishReceipt(driver: Driver, profile: PrinterProfile, cut = true): voi
 }
 
 /** Centered QR code with an optional caption. */
-async function printQr(driver: Driver, profile: PrinterProfile, qr: ReturnType<typeof normalizeQr>): Promise<void> {
+export async function printQr(driver: Driver, profile: PrinterProfile, qr: ReturnType<typeof normalizeQr>): Promise<void> {
   driver.newLine();
   driver.alignCenter();
   if (profile.qrMode === 'native') {
@@ -114,7 +115,7 @@ export function friendlyError(err: unknown, profile: PrinterProfile): Error {
   return new PrinterError(`${who}: ${raw}`);
 }
 
-async function sendThermal(driver: Driver, profile: PrinterProfile, docName: string): Promise<void> {
+export async function sendThermal(driver: Driver, profile: PrinterProfile, docName: string): Promise<void> {
   const { connection } = profile;
   if (connection.type === 'system') {
     await ensureQueueReady(connection.queueName);
@@ -197,6 +198,72 @@ export async function printDocument(request: DocumentRequest): Promise<PrinterPr
   try {
     if (request.pdfBase64) await printPdf(profile, Buffer.from(request.pdfBase64, 'base64'), options);
     else await printHtml(profile, request.html as string, options);
+    return profile;
+  } catch (err) {
+    throw friendlyError(err, profile);
+  }
+}
+
+/**
+ * Whether bills on this receipt printer go through its driver (the bill's own
+ * design, sharp) rather than straight to the printer. Only a printer added to
+ * the computer with its maker's driver can print pages; the raw queues
+ * plug-and-play setup creates ("Generic / Text Only") can't.
+ */
+export async function billsViaDriver(profile: PrinterProfile): Promise<boolean> {
+  if (profile.kind !== 'receipt' || profile.connection.type !== 'system') return false;
+  const mode = profile.billPrint ?? 'auto';
+  if (mode === 'direct') return false;
+  if (mode === 'driver') return true;
+  return hasGraphicsDriver(profile.connection.queueName);
+}
+
+/** CSS width a bill page was laid out for, by paper. */
+const CSS_WIDTH: Record<string, number> = { '58mm': 219, '80mm': 302 };
+
+export interface HtmlPrintOptions {
+  /** Paper the page was laid out for: 80mm / 58mm rolls, or A4 / A5 sheets. */
+  format?: string | null;
+  copies?: number;
+  title?: string | null;
+}
+
+/**
+ * Print a ready-made HTML page, as the POS lays out its bills. On a thermal
+ * printer with its own driver installed the page goes through that driver
+ * (sharp, as a browser prints it); otherwise it is rendered to an image at the
+ * print head's width and printed as raster strips (no driver needed). On an
+ * A4/A5 printer it goes through the driver at the requested paper size.
+ */
+export async function printHtmlPage(html: string, printerId: string | undefined, options: HtmlPrintOptions = {}): Promise<PrinterProfile> {
+  const format = (options.format ?? '').toLowerCase();
+  const wantsSheet = format === 'a4' || format === 'a5';
+  const profile = resolvePrinter(wantsSheet ? 'document' : 'receipt', printerId ?? undefined);
+  const copies = Math.max(1, Math.min(options.copies ?? 1, 5));
+  const docName = options.title?.trim() || 'Bill';
+  try {
+    if (profile.kind === 'document') {
+      const paperSize = format === 'a5' ? 'A5' : format === 'a4' ? 'A4' : profile.paperSize;
+      await printHtml(profile, html, { docName, paperSize, copies });
+      return profile;
+    }
+    if (await billsViaDriver(profile)) {
+      const paperMm = profile.paperWidthChars <= 32 ? 58 : 80;
+      await printHtmlOnRoll(profile, html, { docName, copies, paperMm, designMm: format === '58mm' ? 58 : 80 });
+      return profile;
+    }
+    const strips = await renderHtmlToRaster(html, {
+      dots: printableDots(profile.paperWidthChars),
+      cssWidth: CSS_WIDTH[format] ?? CSS_WIDTH['80mm'],
+    });
+    const driver = buildDriver(profile);
+    for (let copy = 0; copy < copies; copy++) {
+      driver.alignCenter();
+      for (const strip of strips) await driver.printImageBuffer(strip);
+      driver.alignLeft();
+      finishReceipt(driver, profile);
+    }
+    await sendThermal(driver, profile, docName);
     return profile;
   } catch (err) {
     throw friendlyError(err, profile);

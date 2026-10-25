@@ -181,6 +181,10 @@ export const windowsBackend: PrinterBackend = {
     await worker.request('clear', { name });
     invalidate();
   },
+  driverName: async (name) => {
+    const { queues } = await getState();
+    return queues.find((q) => q.name === name)?.driver || null;
+  },
   sendRaw: async (name, data, docName) => {
     await worker.request('print', { printer: name, data: data.toString('base64'), doc: docName }, 30000);
     invalidate();

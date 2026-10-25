@@ -1,0 +1,49 @@
+name: Bug report
+description: Something doesn't print, connect or work as described
+labels: [bug]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thanks for reporting! Please check [Troubleshooting](https://thisarahetz.github.io/pos-hardware-bridge/troubleshooting/) first.
+        **Security problem?** Don't post it here — [report it privately](https://github.com/Thisarahetz/pos-hardware-bridge/security/advisories/new).
+  - type: textarea
+    id: what
+    attributes:
+      label: What happened?
+      description: What you did, what you expected, and what happened instead. A photo of a wrong print helps a lot.
+    validations:
+      required: true
+  - type: textarea
+    id: repro
+    attributes:
+      label: How to reproduce
+      description: The request you sent (remove your token), or the steps in the bridge.
+      render: shell
+  - type: input
+    id: version
+    attributes:
+      label: Bridge version
+      description: Shown in the tray menu.
+      placeholder: "1.0.0"
+    validations:
+      required: true
+  - type: dropdown
+    id: os
+    attributes:
+      label: Operating system
+      options: [Windows 11, Windows 10, macOS, Linux]
+    validations:
+      required: true
+  - type: input
+    id: printer
+    attributes:
+      label: Printer
+      description: Make and model, paper width, and how it's connected (USB, network).
+      placeholder: "Xprinter XP-58, 58mm, USB"
+  - type: textarea
+    id: logs
+    attributes:
+      label: Log
+      description: Tray icon → Open log folder → the relevant lines from bridge.log.
+      render: text

@@ -93,6 +93,13 @@ function sendRaw(queueName: string, data: Buffer, docName: string): Promise<void
   });
 }
 
+/** printer-make-and-model, e.g. "Local Raw Printer" or "Xprinter XP-80". */
+async function driverName(queueName: string): Promise<string | null> {
+  const out = await sh('lpoptions', ['-p', queueName]);
+  const m = /printer-make-and-model=(?:'([^']*)'|"([^"]*)"|(\S+))/.exec(out);
+  return (m && (m[1] ?? m[2] ?? m[3])?.replace(/\\(.)/g, '$1')) || null;
+}
+
 export const cupsBackend: PrinterBackend = {
   listQueues,
   listUsbDevices,
@@ -106,4 +113,5 @@ export const cupsBackend: PrinterBackend = {
     await sh('cancel', ['-a', name]);
   },
   sendRaw,
+  driverName,
 };

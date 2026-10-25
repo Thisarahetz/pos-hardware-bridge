@@ -10,6 +10,7 @@ const defaults: BridgeConfig = {
   server: {
     port: 9191,
     authToken: randomBytes(24).toString('hex'),
+    allowNetwork: false,
   },
   printers: [],
   terminal: {
@@ -50,10 +51,17 @@ function migrateLegacyPrinter(): void {
 migrateLegacyPrinter();
 
 export function getConfig(): BridgeConfig {
-  const { printer: _legacy, ...config } = store.store;
+  // Pick the known sections only: the store also holds the cloud link (with
+  // the station token), which must never reach the settings window.
+  const config = store.store;
   // Fill in settings added after a printer was saved (e.g. the cutter option).
   const printers = (config.printers ?? []).map((p) => ({ ...newProfileDefaults(p.kind), ...p }));
-  return { ...config, app: { ...defaults.app, ...config.app }, printers };
+  return {
+    app: { ...defaults.app, ...config.app },
+    server: { ...defaults.server, ...config.server },
+    printers,
+    terminal: config.terminal,
+  };
 }
 
 export type ConfigPatch = {
@@ -83,7 +91,7 @@ export function regenerateAuthToken(): string {
 // ---------- printers ----------
 
 export function newProfileDefaults(kind: PrinterKind): Omit<PrinterProfile, 'id' | 'name' | 'connection'> {
-  return { kind, language: 'epson', paperWidthChars: 42, cutter: 'full', feedLines: 3, qrMode: 'image', paperSize: 'A4' };
+  return { kind, language: 'epson', encoding: 'multilingual', paperWidthChars: 42, cutter: 'full', feedLines: 3, qrMode: 'image', billPrint: 'auto', paperSize: 'A4' };
 }
 
 function slug(text: string): string {
