@@ -3,6 +3,9 @@ export type { Align, BarcodeOptions, ItemLine, QrOptions, TextSize, TextStyle } 
 export { BridgeClient, BridgeError } from './client.js';
 export type {
   BridgeClientOptions,
+  HealthInfo,
+  PairOptions,
+  PairResult,
   DeviceStatus,
   Preview,
   PrinterInfo,

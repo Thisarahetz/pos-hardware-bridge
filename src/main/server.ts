@@ -1,9 +1,14 @@
 import express from 'express';
+import { app as electronApp } from 'electron';
+import fs from 'node:fs';
+import path from 'node:path';
 import type { Server } from 'node:http';
 import { createServer } from 'node:http';
 import { WebSocketServer, type WebSocket } from 'ws';
 import { getConfig, UnknownPrinterError } from './config-store';
-import { isValidToken, requireAuthToken } from './auth';
+import { displayAddress, identifyUpgrade, localOnly, networkGate, requireAuthToken, type Caller } from './auth';
+import { bridgeId, bridgeName, lanEvents, pairDevice, PairingError } from './lan/devices';
+import { startAdvertising, stopAdvertising } from './lan/advertise';
 import { printDocument, printHtmlPage, printReceipt, printTestPage } from './printer/printer.service';
 import { previewReceiptLine, printReceiptLine } from './printer/receiptline.service';
 import { charge, cancel, terminalStatus, terminalEvents } from './terminal/terminal.service';
@@ -14,12 +19,32 @@ import { validateCharge, validateDocument, validatePage, validatePrinterChoice, 
 
 let httpServer: Server | null = null;
 let wss: WebSocketServer | null = null;
+/** Who each live WebSocket belongs to: payment events go to local callers only. */
+const socketCallers = new WeakMap<WebSocket, Caller>();
 
-function broadcast(event: string, payload: unknown): void {
+function broadcast(event: string, payload: unknown, localOnlyEvent = false): void {
   const message = JSON.stringify({ event, payload });
   wss?.clients.forEach((client: WebSocket) => {
-    if (client.readyState === client.OPEN) client.send(message);
+    if (client.readyState !== client.OPEN) return;
+    if (localOnlyEvent && socketCallers.get(client)?.kind !== 'local') return;
+    client.send(message);
   });
+}
+
+/** Where the API docs live: next to dist/ in development and inside the app when packaged. */
+const DOCS_DIR = path.join(__dirname, '../../docs');
+
+/** Pairing guesses per address per minute: a 6-digit code must not be brute-forced. */
+const pairAttempts = new Map<string, { count: number; resetAt: number }>();
+function tooManyPairAttempts(address: string): boolean {
+  const now = Date.now();
+  const entry = pairAttempts.get(address);
+  if (!entry || entry.resetAt < now) {
+    pairAttempts.set(address, { count: 1, resetAt: now + 60_000 });
+    return false;
+  }
+  entry.count += 1;
+  return entry.count > 10;
 }
 
 /** 404 for an unknown printer name, 502 for a device problem the cashier can fix. */
@@ -50,11 +75,56 @@ function buildApp() {
     }
     next();
   });
+  app.use(networkGate);
+
+  // API docs, readable in a browser at http://127.0.0.1:9191/docs
+  const SPECS = ['openapi.yaml', 'print-station.openapi.yaml'];
+  app.get([...SPECS.map((f) => `/${f}`), ...SPECS.map((f) => `/docs/${f}`)], (req, res) => {
+    res.type('application/yaml');
+    res.sendFile(path.join(DOCS_DIR, path.basename(req.path)), (err) => {
+      if (err && !res.headersSent) res.status(404).json({ error: 'API spec not found in this build' });
+    });
+  });
+  app.get(['/docs', '/docs/'], (_req, res) => {
+    const file = path.join(DOCS_DIR, 'index.html');
+    if (!fs.existsSync(file)) {
+      res.status(404).json({ error: 'API docs not found in this build' });
+      return;
+    }
+    res.sendFile(file);
+  });
+
+  // A phone, tablet or till on the shop network swaps the 6-digit code shown
+  // in the bridge for its own token.
+  app.post('/pair', (req, res) => {
+    const address = displayAddress(req.socket.remoteAddress) ?? 'unknown';
+    if (tooManyPairAttempts(address)) {
+      res.status(429).json({ error: 'Too many attempts. Wait a minute and try again.' });
+      return;
+    }
+    const { code, name } = (req.body ?? {}) as { code?: unknown; name?: unknown };
+    if (typeof code !== 'string' && typeof code !== 'number') {
+      res.status(400).json({ error: 'Invalid pairing request', details: ['"code" must be the 6-digit code shown in the bridge'] });
+      return;
+    }
+    try {
+      const { token, device } = pairDevice(String(code), typeof name === 'string' ? name : '', address);
+      log.info(`paired device "${device.name}" from ${address}`);
+      res.json({ token, deviceId: device.id, deviceName: device.name, bridge: { id: bridgeId(), name: bridgeName(), version: electronApp.getVersion() } });
+    } catch (err) {
+      if (err instanceof PairingError) {
+        res.status(err.status).json({ error: err.message });
+        return;
+      }
+      throw err;
+    }
+  });
 
   app.get('/health', (_req, res) => {
     const status = getStatus();
     res.json({
       ok: true,
+      bridge: { id: bridgeId(), name: bridgeName(), version: electronApp.getVersion(), acceptsDevices: getConfig().server.allowNetwork },
       printer: getConfig().printers.length > 0,
       terminal: getConfig().terminal.enabled,
       printerReady: status?.printer.level === 'ok',
@@ -64,6 +134,12 @@ function buildApp() {
   });
 
   app.use(requireAuthToken);
+
+  // Which caller this is, so an app can show "paired as Kitchen tablet".
+  app.get('/me', (_req, res) => {
+    const caller = res.locals.caller as Caller;
+    res.json(caller.kind === 'local' ? { kind: 'local' } : { kind: 'device', deviceId: caller.device.id, deviceName: caller.device.name });
+  });
 
   // Full, human-readable device status so a POS can show "printer unplugged" etc.
   app.get('/status', async (_req, res) => {
@@ -182,7 +258,7 @@ function buildApp() {
     }
   });
 
-  app.post('/terminal/charge', async (req, res) => {
+  app.post('/terminal/charge', localOnly, async (req, res) => {
     const input = validateCharge(req.body);
     if (!input.ok) {
       res.status(400).json({ error: 'Invalid charge request', details: input.problems });
@@ -196,7 +272,7 @@ function buildApp() {
     }
   });
 
-  app.post('/terminal/cancel', async (req, res) => {
+  app.post('/terminal/cancel', localOnly, async (req, res) => {
     const input = validateReference(req.body);
     if (!input.ok) {
       res.status(400).json({ error: 'Invalid cancel request', details: input.problems });
@@ -210,7 +286,7 @@ function buildApp() {
     }
   });
 
-  app.get('/terminal/status', (_req, res) => {
+  app.get('/terminal/status', localOnly, (_req, res) => {
     res.json(terminalStatus());
   });
 
@@ -236,7 +312,15 @@ export function serverState(): { running: boolean; error?: string } {
 }
 
 function onTerminalStatus(payload: unknown): void {
-  broadcast('terminal.status', payload);
+  broadcast('terminal.status', payload, true);
+}
+
+/** A removed device loses its live connection too, not just future requests. */
+function onDeviceRemoved(id: string): void {
+  wss?.clients.forEach((client: WebSocket) => {
+    const caller = socketCallers.get(client);
+    if (caller?.kind === 'device' && caller.device.id === id) client.close(4401, 'device removed');
+  });
 }
 
 function onStatusChange(status: BridgeStatus): void {
@@ -245,7 +329,8 @@ function onStatusChange(status: BridgeStatus): void {
 
 export function startServer(): void {
   if (httpServer) return;
-  const { port } = getConfig().server;
+  const { port, allowNetwork } = getConfig().server;
+  const host = allowNetwork ? '0.0.0.0' : '127.0.0.1';
   const app = buildApp();
   const server = createServer(app);
   httpServer = server;
@@ -253,8 +338,15 @@ export function startServer(): void {
     server,
     path: '/events',
     // Payment events include card details, so require the token here too.
-    verifyClient: ({ req }: { req: import('node:http').IncomingMessage }) =>
-      isValidToken(new URL(req.url ?? '', 'http://127.0.0.1').searchParams.get('token')),
+    verifyClient: ({ req }: { req: import('node:http').IncomingMessage }, done: (ok: boolean, code?: number, message?: string) => void) => {
+      const verdict = identifyUpgrade(req);
+      if (!verdict.ok) return done(false, verdict.status, verdict.error);
+      (req as import('node:http').IncomingMessage & { caller?: Caller }).caller = verdict.caller;
+      done(true);
+    },
+  });
+  wss.on('connection', (socket: WebSocket, req: import('node:http').IncomingMessage & { caller?: Caller }) => {
+    if (req.caller) socketCallers.set(socket, req.caller);
   });
   wss.on('error', () => {
     // Errors are surfaced through the HTTP server's own 'error' handler below.
@@ -262,11 +354,13 @@ export function startServer(): void {
 
   terminalEvents.on('status', onTerminalStatus);
   statusEvents.on('change', onStatusChange);
+  lanEvents.on('device-removed', onDeviceRemoved);
 
   server.on('listening', () => {
     running = true;
     lastError = undefined;
-    log.info(`API listening on 127.0.0.1:${port}`);
+    log.info(`API listening on ${host}:${port}${allowNetwork ? ' (shop network allowed)' : ''}`);
+    startAdvertising();
   });
 
   server.on('error', (err: NodeJS.ErrnoException) => {
@@ -284,8 +378,9 @@ export function startServer(): void {
     }, 5000);
   });
 
-  // Bind to loopback only — this server must never be reachable off the machine.
-  server.listen(port, '127.0.0.1');
+  // Loopback only unless the shop turned on network access; even then, other
+  // machines need a paired device token (see auth.ts).
+  server.listen(port, host);
 }
 
 export function stopServer(): void {
@@ -293,6 +388,8 @@ export function stopServer(): void {
   retryTimer = null;
   statusEvents.off('change', onStatusChange);
   terminalEvents.off('status', onTerminalStatus);
+  lanEvents.off('device-removed', onDeviceRemoved);
+  stopAdvertising();
   wss?.close();
   wss = null;
   httpServer?.close();

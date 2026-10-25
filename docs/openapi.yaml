@@ -1,0 +1,561 @@
+openapi: 3.0.3
+info:
+  title: POS Hardware Bridge API
+  version: 1.1.0
+  description: |
+    A small app on the shop computer that prints receipts, kitchen tickets and
+    A4/A5 invoices, and takes card payments, for **any POS**. The POS never
+    configures printers: the bridge sets them up, and the POS picks one by its
+    **API name** (`receipt`, `kitchen`, `invoice`…) or leaves it out to use the
+    default.
+
+    ## Who can call it
+
+    | Caller | Address | Token | Can do |
+    | --- | --- | --- | --- |
+    | A POS **on the printer computer** | `http://127.0.0.1:9191` | The access token from the bridge's settings window (**Connect your POS**) | Everything |
+    | A **phone, tablet or other till** on the shop Wi-Fi | The address shown under **Connect your POS → Phones & tablets** in the bridge, e.g. `http://192.168.1.20:9191` | Its own device token, from `POST /pair` | Print, read printers and status. Never card payments |
+
+    The access token is refused from other machines, so it never needs to leave
+    the printer computer. Devices on the network are only accepted while the shop
+    has turned on **Let phones and tablets print here**.
+
+    Send the token as `Authorization: Bearer <token>`.
+
+    ## Pairing a device (shop network)
+
+    1. On the printer computer, someone clicks **Get a code** in the bridge. A
+       6-digit code appears, valid for 10 minutes and for one device.
+    2. The POS app on the phone or tablet calls `POST /pair` with the code and a
+       name for the device, and saves the returned `token`.
+    3. From then on the device prints with that token. The shop can rename or
+       remove it in the bridge at any time.
+
+    Native apps can find the bridge with mDNS/Bonjour: service type
+    `_pos-bridge._tcp`, TXT records `id`, `name`, `version`. Browsers can't use
+    mDNS, so a web POS asks for the address once (it is shown in the bridge).
+
+    > **Web POS on another device:** a page served over `https://` can't call a
+    > plain `http://` address on the shop network (browsers block it as mixed
+    > content). Use the print station protocol through your POS backend
+    > instead (see `print-station.openapi.yaml`), or run the POS as an
+    > Electron, Capacitor, React Native or Android app.
+
+    ## Money and errors
+
+    Money in `/print/receipt` and `/terminal/charge` is in whole **minor units**
+    (12.50 is `1250`). Every error is JSON `{ "error": "…", "details"?: [...] }`;
+    `error` is written for the cashier and can be shown as it is.
+  license:
+    name: MIT
+    url: https://opensource.org/licenses/MIT
+servers:
+  - url: http://127.0.0.1:9191
+    description: On the printer computer
+  - url: http://{lanAddress}:{port}
+    description: From a paired device on the shop network
+    variables:
+      lanAddress:
+        default: 192.168.1.20
+      port:
+        default: '9191'
+tags:
+  - name: Status
+    description: Is the bridge running, and what state are the devices in?
+  - name: Printing
+    description: Print to a printer by its API name, or to the default printer.
+  - name: Devices
+    description: Pairing phones, tablets and other tills on the shop network.
+  - name: Card terminal
+    description: Only from the printer computer itself.
+security:
+  - bearer: []
+paths:
+  /health:
+    get:
+      operationId: getHealth
+      tags: [Status]
+      summary: Is the bridge running and are its printers ready?
+      security: []
+      responses:
+        '200':
+          description: Always 200 while the bridge runs.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Health' }
+  /me:
+    get:
+      operationId: getMe
+      tags: [Devices]
+      summary: Who this token belongs to
+      responses:
+        '200':
+          description: The caller.
+          content:
+            application/json:
+              schema:
+                oneOf:
+                  - type: object
+                    properties: { kind: { type: string, enum: [local] } }
+                  - type: object
+                    properties:
+                      kind: { type: string, enum: [device] }
+                      deviceId: { type: string, format: uuid }
+                      deviceName: { type: string }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+  /pair:
+    post:
+      operationId: pairDevice
+      tags: [Devices]
+      summary: Pair a phone, tablet or till with the 6-digit code shown in the bridge
+      description: |
+        No token needed. The code works once and expires after 10 minutes, or
+        after 5 wrong guesses. Each address may try 10 times a minute.
+      security: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [code]
+              properties:
+                code: { type: string, example: '482913', description: 'The 6 digits; spaces are ignored.' }
+                name: { type: string, maxLength: 60, example: Kitchen tablet, description: Shown in the bridge's device list. }
+      responses:
+        '200':
+          description: Paired. Save the token; it is shown only once.
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  token: { type: string, description: "This device's token for `Authorization: Bearer`." }
+                  deviceId: { type: string, format: uuid }
+                  deviceName: { type: string }
+                  bridge: { $ref: '#/components/schemas/BridgeIdentity' }
+        '400': { $ref: '#/components/responses/Error' }
+        '403': { $ref: '#/components/responses/Error' }
+        '429': { $ref: '#/components/responses/Error' }
+  /printers:
+    get:
+      operationId: listPrinters
+      tags: [Printing]
+      summary: Every printer with its API name and live status
+      description: Use this to offer a printer choice. The first printer of each kind is its default.
+      responses:
+        '200':
+          description: The printers, defaults first.
+          content:
+            application/json:
+              schema:
+                type: array
+                items: { $ref: '#/components/schemas/Printer' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+  /status:
+    get:
+      operationId: getStatus
+      tags: [Status]
+      summary: Plain-language status of every device, to show the cashier
+      responses:
+        '200':
+          description: Status.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/BridgeStatus' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+  /print/receiptline:
+    post:
+      operationId: printReceiptLine
+      tags: [Printing]
+      summary: Print a ReceiptLine receipt (recommended)
+      description: |
+        [ReceiptLine](https://github.com/receiptline/receiptline#grammar) is an
+        open "Markdown for receipts". It is laid out for the printer's own width
+        and printed in its own fonts: sharp, and a few KB per receipt. The
+        `pos-hardware-bridge` npm package builds these documents for you.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/ReceiptLineRequest' }
+      responses:
+        '200': { $ref: '#/components/responses/Printed' }
+        '400': { $ref: '#/components/responses/Invalid' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '404': { $ref: '#/components/responses/UnknownPrinter' }
+        '502': { $ref: '#/components/responses/DeviceProblem' }
+  /preview/receiptline:
+    post:
+      operationId: previewReceiptLine
+      tags: [Printing]
+      summary: The same receipt as an SVG, exactly as it will print
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/ReceiptLineRequest' }
+      responses:
+        '200':
+          description: Preview.
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  svg: { type: string }
+                  cpl: { type: integer, description: Characters per line it was laid out for. }
+                  printer: { type: string, nullable: true }
+        '400': { $ref: '#/components/responses/Invalid' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '404': { $ref: '#/components/responses/UnknownPrinter' }
+  /print/receipt:
+    post:
+      operationId: printReceipt
+      tags: [Printing]
+      summary: Print a receipt from structured JSON
+      description: The bridge lays it out. Sent to an A4 printer, the same data prints as a page with an item table.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/ReceiptRequest' }
+      responses:
+        '200': { $ref: '#/components/responses/Printed' }
+        '400': { $ref: '#/components/responses/Invalid' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '404': { $ref: '#/components/responses/UnknownPrinter' }
+        '502': { $ref: '#/components/responses/DeviceProblem' }
+  /print/page:
+    post:
+      operationId: printPage
+      tags: [Printing]
+      summary: Print a ready-made HTML bill on any printer
+      description: |
+        A thermal printer renders the page to an image at its print-head width;
+        an A4/A5 printer prints it through its driver. Scripts are off and there
+        is no network access: inline the CSS and embed images as `data:` URLs.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [html]
+              properties:
+                html: { type: string, description: A complete HTML document. }
+                printer: { $ref: '#/components/schemas/PrinterName' }
+                format: { type: string, enum: ['80mm', '58mm', a4, a5], description: 'The paper the page was laid out for. Picks the default printer of that kind when `printer` is left out.' }
+                copies: { type: integer, minimum: 1, maximum: 5 }
+                title: { type: string, example: 'Bill #1042' }
+      responses:
+        '200': { $ref: '#/components/responses/Printed' }
+        '400': { $ref: '#/components/responses/Invalid' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '404': { $ref: '#/components/responses/UnknownPrinter' }
+        '502': { $ref: '#/components/responses/DeviceProblem' }
+  /print/document:
+    post:
+      operationId: printDocument
+      tags: [Printing]
+      summary: Print an A4/A5 invoice or document (HTML or PDF)
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              description: Send exactly one of `html` or `pdfBase64`.
+              properties:
+                printer: { $ref: '#/components/schemas/PrinterName' }
+                html: { type: string, description: "A complete, self-contained HTML page. JavaScript is off." }
+                pdfBase64: { type: string, description: "A PDF file, base64-encoded (macOS/Linux; on Windows send HTML)." }
+                paperSize: { type: string, enum: [A4, A5, Letter, Legal] }
+                landscape: { type: boolean, default: false }
+                copies: { type: integer, minimum: 1, maximum: 20 }
+                title: { type: string, example: Invoice INV-1042 }
+      responses:
+        '200': { $ref: '#/components/responses/Printed' }
+        '400': { $ref: '#/components/responses/Invalid' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '404': { $ref: '#/components/responses/UnknownPrinter' }
+        '502': { $ref: '#/components/responses/DeviceProblem' }
+  /print/test:
+    post:
+      operationId: printTestPage
+      tags: [Printing]
+      summary: Print the bridge's test page
+      requestBody:
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                printer: { $ref: '#/components/schemas/PrinterName' }
+      responses:
+        '200': { $ref: '#/components/responses/Printed' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '404': { $ref: '#/components/responses/UnknownPrinter' }
+        '502': { $ref: '#/components/responses/DeviceProblem' }
+  /terminal/charge:
+    post:
+      operationId: chargeCard
+      tags: [Card terminal]
+      summary: Take a card payment
+      description: Answers when the terminal does, or when the timeout set in the bridge passes. Refused (403) for paired devices.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [amountMinorUnits, currency, reference]
+              properties:
+                amountMinorUnits: { type: integer, minimum: 1, example: 1265 }
+                currency: { type: string, pattern: '^[A-Za-z]{3}$', example: USD }
+                reference: { type: string, example: SALE-1042 }
+      responses:
+        '200':
+          description: The terminal's answer.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/ChargeResult' }
+        '400': { $ref: '#/components/responses/Invalid' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Error' }
+        '502': { $ref: '#/components/responses/DeviceProblem' }
+  /terminal/cancel:
+    post:
+      operationId: cancelCharge
+      tags: [Card terminal]
+      summary: Cancel a payment in progress
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [reference]
+              properties:
+                reference: { type: string }
+      responses:
+        '200':
+          description: Cancelled.
+          content:
+            application/json:
+              schema: { type: object, properties: { ok: { type: boolean } } }
+        '403': { $ref: '#/components/responses/Error' }
+        '502': { $ref: '#/components/responses/DeviceProblem' }
+  /terminal/status:
+    get:
+      operationId: getTerminalStatus
+      tags: [Card terminal]
+      summary: Is the card terminal connected?
+      responses:
+        '200':
+          description: Connection state.
+          content:
+            application/json:
+              schema: { type: object, properties: { connected: { type: boolean } } }
+        '403': { $ref: '#/components/responses/Error' }
+  /events:
+    get:
+      operationId: openEvents
+      tags: [Status]
+      summary: Live updates over WebSocket
+      description: |
+        Open `ws://<address>/events?token=<token>` (browsers can't send headers
+        on WebSockets). Messages are `{ "event": "<name>", "payload": {…} }`:
+
+        - `bridge.status`: same body as `GET /status`, whenever a device changes.
+        - `terminal.status`: payment progress. Sent to the printer computer only.
+
+        A device that is removed in the bridge is disconnected (close code 4401).
+      parameters:
+        - name: token
+          in: query
+          required: true
+          schema: { type: string }
+      security: []
+      responses:
+        '101': { description: Switching to WebSocket. }
+        '401': { description: Missing or wrong token. }
+components:
+  securitySchemes:
+    bearer:
+      type: http
+      scheme: bearer
+      description: The access token (printer computer) or a device token (from `POST /pair`).
+  schemas:
+    PrinterName:
+      type: string
+      description: The printer's API name, e.g. `receipt`, `kitchen` or `invoice`. Leave it out to use the default printer.
+      example: kitchen
+    StatusLevel:
+      type: string
+      enum: [ok, warning, error, off]
+    DeviceStatus:
+      type: object
+      properties:
+        level: { $ref: '#/components/schemas/StatusLevel' }
+        title: { type: string, example: Ready }
+        detail: { type: string, example: EPSON TM-T20 (USB) }
+        steps:
+          type: array
+          items: { type: string }
+          description: What the cashier should do, in order. Empty when fine.
+    BridgeIdentity:
+      type: object
+      properties:
+        id: { type: string, format: uuid, description: Stable per printer computer. }
+        name: { type: string, example: Front-counter-PC }
+        version: { type: string, example: 1.1.0 }
+    Health:
+      type: object
+      properties:
+        ok: { type: boolean }
+        bridge:
+          allOf:
+            - $ref: '#/components/schemas/BridgeIdentity'
+            - type: object
+              properties:
+                acceptsDevices: { type: boolean, description: Whether the shop allows devices on the network to pair. }
+        printer: { type: boolean, description: Any printer is set up. }
+        terminal: { type: boolean, description: A card terminal is turned on. }
+        printerReady: { type: boolean, description: The default receipt printer is ready. }
+        terminalReady: { type: boolean }
+        printers:
+          type: array
+          items:
+            type: object
+            properties:
+              id: { type: string }
+              kind: { type: string, enum: [receipt, document] }
+              ready: { type: boolean }
+    Printer:
+      type: object
+      properties:
+        id: { type: string, description: API name to print to., example: receipt }
+        name: { type: string, example: Front counter }
+        kind: { type: string, enum: [receipt, document], description: '`receipt` = thermal, `document` = A4/A5.' }
+        isDefault: { type: boolean }
+        ready: { type: boolean }
+        paperSize: { type: string, enum: [A4, A5, Letter, Legal], description: Document printers. }
+        paperWidthChars: { type: integer, description: 'Receipt printers: characters per line (58mm ≈ 32, 80mm ≈ 42–48).' }
+        status: { $ref: '#/components/schemas/DeviceStatus' }
+    BridgeStatus:
+      type: object
+      properties:
+        printers:
+          type: array
+          items:
+            allOf:
+              - $ref: '#/components/schemas/DeviceStatus'
+              - type: object
+                properties:
+                  id: { type: string }
+                  name: { type: string }
+                  kind: { type: string, enum: [receipt, document] }
+        printer: { $ref: '#/components/schemas/DeviceStatus' }
+        terminal: { $ref: '#/components/schemas/DeviceStatus' }
+        api:
+          type: object
+          properties:
+            url: { type: string }
+            running: { type: boolean }
+            error: { type: string }
+        checkedAt: { type: string, format: date-time }
+    ReceiptLineRequest:
+      type: object
+      required: [document]
+      properties:
+        document: { type: string, maxLength: 500000, example: "^^^My Shop\nBill | #1042\n-\n^^TOTAL | ^^LKR 1,250.00" }
+        printer: { $ref: '#/components/schemas/PrinterName' }
+        copies: { type: integer, minimum: 1, maximum: 5 }
+        cut: { type: boolean, description: '`false` = no cut after this receipt.' }
+        title: { type: string, example: 'Bill #1042' }
+    ReceiptRequest:
+      type: object
+      required: [businessName, saleReference, timestamp, lines, subtotalAmount, taxAmount, totalAmount, currency, paymentMethod]
+      properties:
+        printer: { $ref: '#/components/schemas/PrinterName' }
+        cut: { type: boolean, default: true }
+        businessName: { type: string }
+        locationName: { type: string }
+        saleReference: { type: string }
+        timestamp: { type: string, description: Printed as it is. }
+        lines:
+          type: array
+          minItems: 1
+          items:
+            type: object
+            required: [label, totalAmount]
+            properties:
+              label: { type: string }
+              qty: { type: integer, minimum: 1 }
+              unitAmount: { type: integer, description: Minor units. }
+              totalAmount: { type: integer, description: Minor units. }
+        subtotalAmount: { type: integer }
+        taxAmount: { type: integer }
+        totalAmount: { type: integer }
+        currency: { type: string, pattern: '^[A-Za-z]{3}$', example: LKR }
+        paymentMethod: { type: string, example: Cash }
+        qrCode:
+          oneOf:
+            - type: string
+            - type: object
+              required: [data]
+              properties:
+                data: { type: string, maxLength: 1000 }
+                label: { type: string }
+                size: { type: string, enum: [small, medium, large] }
+        footer: { type: string }
+    ChargeResult:
+      type: object
+      properties:
+        status: { type: string, enum: [approved, declined, error, cancelled, pending] }
+        reference: { type: string }
+        authCode: { type: string }
+        cardLast4: { type: string }
+        message: { type: string }
+    Error:
+      type: object
+      required: [error]
+      properties:
+        error: { type: string, description: Written for the cashier. }
+        details: { type: array, items: { type: string }, description: "Every problem with the request, for developers." }
+  responses:
+    Printed:
+      description: Printed.
+      content:
+        application/json:
+          schema:
+            type: object
+            properties:
+              ok: { type: boolean, enum: [true] }
+              printer: { type: string, description: The printer that printed it. }
+    Error:
+      description: Error.
+      content:
+        application/json:
+          schema: { $ref: '#/components/schemas/Error' }
+    Invalid:
+      description: The request is wrong; `details` lists every problem.
+      content:
+        application/json:
+          schema: { $ref: '#/components/schemas/Error' }
+    Unauthorized:
+      description: Missing or wrong token (403 when the access token is used from another machine).
+      content:
+        application/json:
+          schema: { $ref: '#/components/schemas/Error' }
+    UnknownPrinter:
+      description: No printer with that API name; the message lists the ones that exist.
+      content:
+        application/json:
+          schema: { $ref: '#/components/schemas/Error' }
+    DeviceProblem:
+      description: The device failed. The message tells the cashier what to do.
+      content:
+        application/json:
+          schema: { $ref: '#/components/schemas/Error' }

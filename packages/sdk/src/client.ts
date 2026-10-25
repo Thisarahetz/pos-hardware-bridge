@@ -1,14 +1,66 @@
 import type { Receipt } from './receipt.js';
 
 /**
- * Talk to POS Hardware Bridge running on this computer
- * (http://127.0.0.1:9191 by default) from a browser POS, Node or Electron.
+ * Talk to POS Hardware Bridge from a browser POS, Node or Electron: on this
+ * computer (http://127.0.0.1:9191, the default), or from a phone, tablet or
+ * till on the shop network after pairing (see BridgeClient.pair).
  */
 
+const DEFAULT_URL = 'http://127.0.0.1:9191';
+
+function isThisComputer(url: string): boolean {
+  return /^https?:\/\/(127\.0\.0\.1|localhost|\[::1\])(:|\/|$)/i.test(url);
+}
+
+function unreachableMessage(url: string): string {
+  return isThisComputer(url)
+    ? 'POS Hardware Bridge is not running on this computer. Open it from the Start menu or the tray.'
+    : `Can't reach the printer computer at ${url}. Check it is switched on, the bridge is running, and this device is on the same Wi-Fi.`;
+}
+
+async function readError(res: Response): Promise<{ message: string; details: string[] }> {
+  const data = (await res.json().catch(() => null)) as any;
+  const message =
+    res.status === 401
+      ? 'The bridge did not accept this device. Copy the access token again, or pair this device again.'
+      : (typeof data?.error === 'string' ? data.error : data?.error?.message) ?? `The bridge answered ${res.status}.`;
+  return { message, details: Array.isArray(data?.details) ? data.details : [] };
+}
+
+export interface PairOptions {
+  /** The address shown in the bridge under "Shop network", e.g. http://192.168.1.20:9191 */
+  url: string;
+  /** The 6-digit code shown after clicking "Pair a device" in the bridge. */
+  code: string;
+  /** Shown in the bridge's device list, e.g. "Kitchen tablet". */
+  name: string;
+  timeoutMs?: number;
+}
+
+export interface PairResult {
+  /** Save this: it is this device's own token for BridgeClient. Shown once. */
+  token: string;
+  deviceId: string;
+  deviceName: string;
+  bridge: { id: string; name: string; version: string };
+  /** The address to use with BridgeClient. */
+  url: string;
+}
+
+export interface HealthInfo {
+  ok: boolean;
+  bridge?: { id: string; name: string; version: string; acceptsDevices: boolean };
+  printerReady: boolean;
+  terminalReady?: boolean;
+  printers: Array<{ id: string; kind: string; ready: boolean }>;
+}
+
 export interface BridgeClientOptions {
-  /** Where the bridge listens. Default http://127.0.0.1:9191 */
+  /** Where the bridge listens. Default http://127.0.0.1:9191 (this computer).
+   * From another device, the address shown under "Shop network" in the bridge. */
   url?: string;
-  /** The access token from the bridge's settings window ("Connect your POS"). */
+  /** On the printer computer: the access token from "Connect your POS".
+   * On another device: the token BridgeClient.pair() returned. */
   token: string;
   /** Milliseconds before a request gives up. Default 15000. */
   timeoutMs?: number;
@@ -87,7 +139,7 @@ export class BridgeClient {
 
   constructor(options: BridgeClientOptions) {
     if (!options?.token) throw new Error('BridgeClient needs the access token from the bridge settings.');
-    this.url = (options.url ?? 'http://127.0.0.1:9191').replace(/\/+$/, '');
+    this.url = (options.url ?? DEFAULT_URL).replace(/\/+$/, '');
     this.token = options.token;
     this.timeoutMs = options.timeoutMs ?? 15_000;
   }
@@ -105,22 +157,49 @@ export class BridgeClient {
         signal: AbortSignal.timeout(this.timeoutMs),
       });
     } catch {
-      throw new BridgeError('POS Hardware Bridge is not running on this computer. Open it from the Start menu or the tray.', 0);
+      throw new BridgeError(unreachableMessage(this.url), 0);
     }
-    const data = (await res.json().catch(() => null)) as any;
     if (!res.ok) {
-      const message =
-        res.status === 401
-          ? 'The bridge access token is wrong. Copy it again from the bridge settings.'
-          : (data?.error && typeof data.error === 'string' ? data.error : data?.error?.message) ?? `The bridge answered ${res.status}.`;
-      throw new BridgeError(message, res.status, Array.isArray(data?.details) ? data.details : []);
+      const { message, details } = await readError(res);
+      throw new BridgeError(message, res.status, details);
     }
-    return data as T;
+    return (await res.json().catch(() => null)) as T;
+  }
+
+  /**
+   * Pair a phone, tablet or till with the bridge on the printer computer.
+   * Someone clicks "Pair a device" in the bridge and reads out the code; save
+   * the returned token and url, then use `new BridgeClient({ url, token })`.
+   */
+  static async pair(options: PairOptions): Promise<PairResult> {
+    const url = options.url.trim().replace(/\/+$/, '');
+    let res: Response;
+    try {
+      res = await fetch(`${url}/pair`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ code: String(options.code).replace(/\D/g, ''), name: options.name }),
+        signal: AbortSignal.timeout(options.timeoutMs ?? 15_000),
+      });
+    } catch {
+      throw new BridgeError(unreachableMessage(url), 0);
+    }
+    if (!res.ok) {
+      const { message, details } = await readError(res);
+      throw new BridgeError(res.status === 401 ? 'That code is wrong.' : message, res.status, details);
+    }
+    const data = (await res.json()) as Omit<PairResult, 'url'>;
+    return { ...data, url };
   }
 
   /** Is the bridge running, and are its printers ready? No token needed. */
-  health(): Promise<{ ok: boolean; printerReady: boolean; printers: Array<{ id: string; kind: string; ready: boolean }> }> {
+  health(): Promise<HealthInfo> {
     return this.request('GET', '/health', undefined, false);
+  }
+
+  /** Who the bridge thinks this is: the printer computer itself, or a paired device. */
+  me(): Promise<{ kind: 'local' } | { kind: 'device'; deviceId: string; deviceName: string }> {
+    return this.request('GET', '/me');
   }
 
   /** Every printer with its API name and live status. */
@@ -149,6 +228,18 @@ export class BridgeClient {
     options: { printer?: string; paperSize?: 'A4' | 'A5' | 'Letter' | 'Legal'; landscape?: boolean; copies?: number; title?: string } = {},
   ): Promise<PrintResult> {
     return this.request('POST', '/print/document', { ...page, ...options });
+  }
+
+  /**
+   * Print a ready-made HTML bill on any printer. A thermal printer prints it
+   * as an image at its print-head width; prefer print() with a receipt for
+   * sharper, smaller receipts.
+   */
+  printPage(
+    html: string,
+    options: { printer?: string; format?: '80mm' | '58mm' | 'a4' | 'a5'; copies?: number; title?: string } = {},
+  ): Promise<PrintResult> {
+    return this.request('POST', '/print/page', { html, ...options });
   }
 
   /** Print the bridge's test page on a printer. */

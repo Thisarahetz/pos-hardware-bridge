@@ -10,9 +10,9 @@
   <header class="top">
     <div>
       <h1>POS Hardware Bridge</h1>
-      <p class="muted">Connects your POS to the receipt printer and card terminal on this computer.</p>
+      <p class="muted">Lets your POS print receipts and take card payments using this computer.</p>
     </div>
-    <span id="apiPill" class="pill">API starting…</span>
+    <span id="apiPill" class="pill">Starting…</span>
   </header>
   <div id="apiError" class="banner" hidden></div>
 
@@ -23,6 +23,139 @@
       <span class="muted small" id="printerCount"></span>
     </div>
     <div id="printerCards" class="printer-cards"></div>
+  </section>
+
+  <!-- Connect your POS: one place, three ways -->
+  <section class="card" id="connectCard">
+    <h3>Connect your POS</h3>
+    <p class="muted">Where do you use your POS? Pick one. You can use more than one.</p>
+    <div class="ways" role="tablist">
+      <button class="way" role="tab" data-way="local" aria-selected="true">
+        <span class="way-icon" aria-hidden="true">🖥️</span>
+        <span class="way-title">On this computer</span>
+        <span class="way-sub">The POS opens on this computer</span>
+      </button>
+      <button class="way" role="tab" data-way="wifi" aria-selected="false">
+        <span class="way-icon" aria-hidden="true">📱</span>
+        <span class="way-title">Phones &amp; tablets</span>
+        <span class="way-sub">On the same Wi-Fi as this computer</span>
+        <span class="way-status" id="wayWifiStatus"></span>
+      </button>
+      <button class="way" role="tab" data-way="online" aria-selected="false">
+        <span class="way-icon" aria-hidden="true">🔗</span>
+        <span class="way-title">With a code</span>
+        <span class="way-sub">Your POS gave you a 6-digit code</span>
+        <span class="way-status" id="wayOnlineStatus"></span>
+      </button>
+    </div>
+
+    <!-- 1. POS on this computer -->
+    <div class="way-panel" data-panel="local">
+      <ol class="how">
+        <li>In your POS, open the <strong>printer settings</strong>.</li>
+        <li>Choose <strong>POS Hardware Bridge</strong> (it may be called <em>local printer</em> or <em>print bridge</em>).</li>
+        <li>Copy these two values and paste them into your POS.</li>
+      </ol>
+      <label>Address
+        <div class="row">
+          <input id="apiUrl" type="text" readonly />
+          <button data-copy="apiUrl">Copy</button>
+        </div>
+      </label>
+      <label>Password <span class="hint">(also called “access token” or “key”)</span>
+        <div class="row">
+          <input id="authToken" type="password" readonly />
+          <button id="toggleToken" class="ghost">Show</button>
+          <button data-copy="authToken">Copy</button>
+        </div>
+      </label>
+      <p class="muted small spaced">Then print a test receipt from your POS. If it doesn’t print, check that the address and password were pasted exactly.</p>
+      <details class="advanced">
+        <summary>For developers</summary>
+        <p class="muted small">Full API guide: <button id="openDocs" class="link">open the API docs</button>. Example: print a receipt.</p>
+        <pre id="snippet"></pre>
+        <button data-copy="snippet">Copy example</button>
+        <div class="grid2">
+          <label>Port <input id="port" type="number" min="1024" max="65535" /></label>
+          <div class="bottom-align"><button id="savePort">Change port</button></div>
+        </div>
+        <button id="regenToken" class="link danger">Make a new password (your POS must be updated)</button>
+      </details>
+    </div>
+
+    <!-- 2. Phones and tablets on the shop Wi-Fi -->
+    <div class="way-panel" data-panel="wifi" hidden>
+      <div class="option">
+        <div>
+          <div class="option-label">Let phones and tablets print here</div>
+          <div class="muted small" id="lanDetail">Only this computer can use the printers.</div>
+        </div>
+        <label class="switch"><input id="lanEnabled" type="checkbox" /> <span>On</span></label>
+      </div>
+      <div id="lanBody" hidden>
+        <ol class="how spaced">
+          <li>On the phone or tablet, open your POS app and go to the <strong>printer settings</strong>.</li>
+          <li>Enter this address: <span class="inline-copy"><code id="lanAddressText"></code> <button data-copy="lanAddress" class="link">Copy</button></span>
+            <input id="lanAddress" type="hidden" /></li>
+          <li>Click <strong>Get a code</strong> below and type the code into the app.</li>
+        </ol>
+        <p id="lanNoNetwork" class="result error" hidden>This computer isn’t connected to a network. Connect it to the shop Wi-Fi first.</p>
+        <p id="lanOtherAddresses" class="muted small"></p>
+        <div id="lanPairing" class="pairing" hidden>
+          <div class="muted small">Type this code into the app:</div>
+          <div id="lanCode" class="pair-code"></div>
+          <div class="row tight">
+            <span id="lanCodeExpiry" class="muted small"></span>
+            <button id="lanCancelPairing" class="link">Cancel</button>
+          </div>
+        </div>
+        <button id="lanStartPairing" class="primary">Get a code</button>
+
+        <h4 class="spaced">Connected devices</h4>
+        <ul id="lanDevices" class="device-list">
+          <li class="empty">No devices yet.</li>
+        </ul>
+        <p class="muted small">Phones and tablets can print. Card payments only work on this computer. Use this only on your own shop Wi-Fi, not a guest network.</p>
+      </div>
+    </div>
+
+    <!-- 3. Online POS, connected with a code (print station) -->
+    <div class="way-panel" data-panel="online" hidden>
+      <div class="linked" id="cloudLinked" hidden>
+        <div class="linked-head">
+          <span class="dot" id="cloudDot" aria-hidden="true"></span>
+          <div class="status-text">
+            <h2 id="cloudTitle">Connected</h2>
+            <p id="cloudDetail" class="muted"></p>
+          </div>
+          <button id="cloudDisconnect" class="link danger">Disconnect</button>
+        </div>
+        <p id="cloudLastJob" class="muted small spaced"></p>
+      </div>
+      <div id="cloudForm">
+        <p id="cloudRemoved" class="result error" hidden></p>
+        <ol class="how">
+          <li>In your POS, open the <strong>printer settings</strong> and look for <strong>Add print station</strong> or <strong>Connect a printer computer</strong>. It shows a 6-digit code.</li>
+          <li>Type your POS website address and the code here, then click <strong>Connect</strong>.</li>
+        </ol>
+        <p class="muted small">Every cashier, tablet and phone using that POS can then print on this computer, even when they’re not on the shop Wi-Fi.</p>
+        <label>POS website address
+          <input id="cloudServer" type="text" placeholder="e.g. mypos.com" spellcheck="false" autocomplete="off" />
+        </label>
+        <label>6-digit code
+          <div class="row">
+            <input id="cloudCode" type="text" inputmode="numeric" maxlength="7" placeholder="123 456" autocomplete="one-time-code" />
+            <button id="cloudPair" class="primary">Connect</button>
+          </div>
+        </label>
+        <details class="advanced">
+          <summary>Name for this computer</summary>
+          <input id="cloudName" type="text" maxlength="60" aria-label="Name for this computer" />
+          <p class="muted small">Shown in your POS so staff know which printer computer this is.</p>
+        </details>
+        <p id="cloudError" class="result error" role="alert"></p>
+      </div>
+    </div>
   </section>
 
   <!-- Add a printer -->
@@ -47,34 +180,6 @@
       </div>
       <button id="useNetworkPrinter">Add receipt printer</button>
     </details>
-  </section>
-
-  <!-- AI POS cloud printing -->
-  <section class="card status-card" id="cloudCard" data-level="off">
-    <div class="status-head">
-      <span class="dot" aria-hidden="true"></span>
-      <div class="status-text">
-        <div class="eyebrow">AI POS · print from any device</div>
-        <h2 id="cloudTitle">Not connected</h2>
-        <p id="cloudDetail" class="muted"></p>
-      </div>
-      <button id="cloudDisconnect" class="link danger" hidden>Disconnect</button>
-    </div>
-    <div id="cloudForm">
-      <p class="muted small spaced">Let every cashier, tablet and phone in the shop print to the printers on this computer. In AI POS, an owner opens <strong>Settings → Printers → Add print station</strong> to get a code.</p>
-      <div class="grid2">
-        <label>AI POS server <input id="cloudServer" type="text" placeholder="api.yourpos.com" spellcheck="false" autocomplete="off" /></label>
-        <label>Name for this computer <input id="cloudName" type="text" maxlength="60" /></label>
-      </div>
-      <label>6-digit code
-        <div class="row">
-          <input id="cloudCode" type="text" inputmode="numeric" maxlength="7" placeholder="123 456" autocomplete="one-time-code" />
-          <button id="cloudPair" class="primary">Connect</button>
-        </div>
-      </label>
-      <p id="cloudError" class="result error" role="alert"></p>
-    </div>
-    <p id="cloudLastJob" class="muted small spaced"></p>
   </section>
 
   <!-- Card terminal -->
@@ -112,36 +217,6 @@
       <button id="testCharge">Test $1.00 charge</button>
       <p id="terminalResult" class="result" role="status"></p>
     </div>
-  </section>
-
-  <!-- Integration -->
-  <section class="card">
-    <h3>Connect your POS</h3>
-    <p class="muted">Paste these two values into your POS settings (GlowDesk, SmartPOS, Restaurant POS…).</p>
-    <label>Bridge address
-      <div class="row">
-        <input id="apiUrl" type="text" readonly />
-        <button data-copy="apiUrl">Copy</button>
-      </div>
-    </label>
-    <label>Access token
-      <div class="row">
-        <input id="authToken" type="password" readonly />
-        <button id="toggleToken" class="ghost">Show</button>
-        <button data-copy="authToken">Copy</button>
-      </div>
-    </label>
-    <details class="advanced">
-      <summary>Developer details</summary>
-      <p class="muted small">Example: print a receipt. Full API guide is in the README.</p>
-      <pre id="snippet"></pre>
-      <button data-copy="snippet">Copy example</button>
-      <div class="grid2">
-        <label>Port <input id="port" type="number" min="1024" max="65535" /></label>
-        <div class="bottom-align"><button id="savePort">Change port</button></div>
-      </div>
-      <button id="regenToken" class="link danger">Make a new token (your POS must be updated)</button>
-    </details>
   </section>
 
   <!-- This computer -->

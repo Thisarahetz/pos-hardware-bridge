@@ -10,6 +10,7 @@ const defaults: BridgeConfig = {
   server: {
     port: 9191,
     authToken: randomBytes(24).toString('hex'),
+    allowNetwork: false,
   },
   printers: [],
   terminal: {
@@ -57,7 +58,7 @@ export function getConfig(): BridgeConfig {
   const printers = (config.printers ?? []).map((p) => ({ ...newProfileDefaults(p.kind), ...p }));
   return {
     app: { ...defaults.app, ...config.app },
-    server: config.server,
+    server: { ...defaults.server, ...config.server },
     printers,
     terminal: config.terminal,
   };

@@ -1,0 +1,310 @@
+openapi: 3.0.3
+info:
+  title: Print Station Protocol
+  version: 1.0.0
+  description: |
+    Let **every device of your POS** (tills, tablets, phones, even on mobile
+    data) print to the printers on the shop computer, with no open ports,
+    fixed IP or router setup at the shop.
+
+    Your **POS backend** implements the five routes below. POS Hardware Bridge
+    on the printer computer pairs with your backend once, then keeps one
+    outgoing connection open (a long-poll) and prints whatever your backend
+    queues for it. AI POS implements this protocol; any POS can.
+
+    ```
+    POS device ──"print bill"──▶ your backend ──queue job──┐
+                                                           │ long-poll
+    printer computer (bridge) ◀────── jobs ────────────────┘
+                     └────────── result (printed / failed) ──▶ your backend ──▶ POS device
+    ```
+
+    ## Base URL
+
+    The shop types your server's address into the bridge. The bridge calls
+    `<base>/print-station/...`:
+
+    - A bare host such as `pos.example.com` becomes `https://pos.example.com/api/v1`.
+    - A full URL such as `https://pos.example.com/printing` is used as it is.
+
+    Must be `https://`, except addresses on the shop network or `localhost`.
+
+    ## Authentication
+
+    `POST /print-station/pair` is public and swaps a one-time 6-digit code for
+    a **station token**. Every other route needs `Authorization: Station <token>`.
+    Store only a hash of the token. Answer **401** for an unknown or revoked
+    token: the bridge then shows "Removed, pair again" and stops calling.
+
+    ## What your backend must guarantee
+
+    1. **Pairing codes**: 6 digits, single use, short-lived (AI POS: 10 minutes).
+       Rate-limit `/pair` hard (AI POS: 5 per minute per address).
+    2. **A job goes to one station once.** Claim jobs atomically (for example
+       `UPDATE … WHERE status = 'queued' … FOR UPDATE SKIP LOCKED`) and mark
+       them `sent`.
+    3. **Never print late.** A queued job not picked up in time (AI POS: 2
+       minutes) becomes `expired`, so the cashier can print elsewhere.
+    4. **Never print twice.** A `sent` job with no result in 60 s may be handed
+       out once more; after that, fail it for a person to check. The bridge
+       remembers the last 500 job ids it printed and reports a repeat as
+       `printed` without printing it again.
+    5. **Results are idempotent.** A repeated result changes nothing, and a late
+       `failed` never overwrites `printed`.
+    6. **Drop bill contents** after a day or so; bills hold customer details.
+
+    ## Errors
+
+    Any non-2xx with JSON `{ "error": { "code": "…", "message": "…" } }`. The
+    bridge shows `message` to the shop, so write it for people.
+
+    ## Timing used by the bridge
+
+    | What | Value |
+    | --- | --- |
+    | Long-poll wait it asks for | 25 s (hold the request up to `waitSeconds`) |
+    | Its own request timeout for the long-poll | 40 s |
+    | Heartbeat (`PUT /status`) | every 30 s, and 1.5 s after any printer change |
+    | Retry after a network error | 1 s, doubling to 30 s |
+  license:
+    name: MIT
+    url: https://opensource.org/licenses/MIT
+servers:
+  - url: https://pos.example.com/api/v1
+    description: Your POS backend
+tags:
+  - name: Pairing
+    description: Linking a printer computer to a shop in your POS.
+  - name: Jobs
+    description: Handing print jobs to the station and getting results back.
+  - name: Station
+    description: Heartbeat and disconnecting.
+security:
+  - station: []
+paths:
+  /print-station/pair:
+    post:
+      operationId: pairStation
+      tags: [Pairing]
+      summary: Swap a 6-digit pairing code for a station token
+      description: |
+        The shop gets the code from your POS (for example **Settings → Printers
+        → Add print station**) and types it into the bridge. The code belongs
+        to one shop/branch on your side; the new station prints for it.
+      security: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [code, name]
+              properties:
+                code: { type: string, pattern: '^\d{6}$', example: '482913' }
+                name: { type: string, minLength: 1, maxLength: 60, example: Front counter PC, description: Name for the printer computer. }
+                bridgeVersion: { type: string, maxLength: 20, example: 1.1.0 }
+      responses:
+        '200':
+          description: Paired. The token is shown only here.
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [stationId, token, stationName, shopName]
+                properties:
+                  stationId: { type: string }
+                  token: { type: string, maxLength: 200, description: "Random, at least 32 bytes." }
+                  stationName: { type: string }
+                  shopName: { type: string, example: Downtown Branch }
+        '400':
+          description: Wrong, used or expired code.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Error' }
+        '429':
+          description: Too many attempts.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Error' }
+  /print-station/jobs/next:
+    post:
+      operationId: nextJobs
+      tags: [Jobs]
+      summary: Long-poll for jobs
+      description: |
+        Hold the request open until a job is queued for this station or
+        `waitSeconds` pass, then answer. Claim up to a few jobs at once (AI
+        POS: 5), oldest first. If the bridge hangs up before you answer, don't
+        claim anything for it.
+      requestBody:
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                waitSeconds: { type: integer, minimum: 0, maximum: 25, default: 25 }
+      responses:
+        '200':
+          description: Jobs to print now; empty after the wait.
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [jobs]
+                properties:
+                  jobs:
+                    type: array
+                    items: { $ref: '#/components/schemas/Job' }
+        '401': { $ref: '#/components/responses/Revoked' }
+  /print-station/jobs/{id}/result:
+    post:
+      operationId: reportJobResult
+      tags: [Jobs]
+      summary: Report whether a job printed
+      description: |
+        Sent after every job. If it can't be delivered, the bridge retries it
+        before the next long-poll. Answer 404 for an unknown job and 400 for
+        a job that is already final; the bridge then stops retrying.
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema: { type: string }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [status]
+              properties:
+                status: { type: string, enum: [printed, failed] }
+                error: { type: string, maxLength: 500, description: 'When failed: the printer problem, written for the cashier.' }
+      responses:
+        '200':
+          description: Recorded (or already final).
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  id: { type: string }
+                  status: { type: string, enum: [printed, failed, expired] }
+        '401': { $ref: '#/components/responses/Revoked' }
+        '404':
+          description: No such job for this station.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Error' }
+  /print-station/status:
+    put:
+      operationId: stationHeartbeat
+      tags: [Station]
+      summary: Heartbeat with the station's printers
+      description: |
+        Keep the printers and their status, and treat the station as online
+        while heartbeats arrive (AI POS: seen in the last 60 s). Show these
+        printers in your POS so devices can pick one by `id`.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [printers]
+              properties:
+                printers:
+                  type: array
+                  maxItems: 20
+                  items: { $ref: '#/components/schemas/StationPrinter' }
+                bridgeVersion: { type: string, maxLength: 20 }
+      responses:
+        '200':
+          description: The names to show in the bridge (the shop may rename the station in your POS).
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [stationName, shopName]
+                properties:
+                  stationId: { type: string }
+                  stationName: { type: string }
+                  shopName: { type: string }
+        '401': { $ref: '#/components/responses/Revoked' }
+  /print-station/me:
+    get:
+      operationId: getStation
+      tags: [Station]
+      summary: The station this token belongs to (optional, for debugging)
+      responses:
+        '200':
+          description: The station.
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  stationId: { type: string }
+                  stationName: { type: string }
+        '401': { $ref: '#/components/responses/Revoked' }
+    delete:
+      operationId: disconnectStation
+      tags: [Station]
+      summary: Disconnect (the bridge's own Disconnect button)
+      description: Revoke the token and fail any queued or sent jobs for this station.
+      responses:
+        '200':
+          description: Disconnected.
+          content:
+            application/json:
+              schema: { type: object, properties: { disconnected: { type: boolean } } }
+        '401': { $ref: '#/components/responses/Revoked' }
+components:
+  securitySchemes:
+    station:
+      type: apiKey
+      in: header
+      name: Authorization
+      description: '`Station <token>` (note: the scheme word is `Station`, not `Bearer`).'
+  schemas:
+    Job:
+      type: object
+      required: [id, kind, copies]
+      description: |
+        Send `receiptline` (sharpest, printed in the printer's own fonts) or
+        `html`. `kind: test` prints the bridge's test page and needs neither.
+      properties:
+        id: { type: string, description: Unique; the bridge uses it to never print twice. }
+        kind: { type: string, enum: [bill, document, test] }
+        printer: { type: string, nullable: true, description: 'A printer `id` from the heartbeat; null = the default printer for the format.' }
+        receiptline: { type: string, nullable: true, description: 'A ReceiptLine document (see the bridge API docs).' }
+        html: { type: string, nullable: true, description: A complete HTML page. Thermal printers print it as an image; scripts are off and nothing is downloaded. }
+        format: { type: string, nullable: true, enum: ['80mm', '58mm', a4, a5, null], description: 'For `html`: the paper the page was laid out for.' }
+        title: { type: string, nullable: true, maxLength: 120, example: 'Bill #1042' }
+        copies: { type: integer, minimum: 1, maximum: 5, default: 1 }
+    StationPrinter:
+      type: object
+      required: [id, name, kind, paper, level, title, isDefault]
+      properties:
+        id: { type: string, maxLength: 40, example: receipt, description: The printer's API name. Put it in `Job.printer`. }
+        name: { type: string, maxLength: 80, example: Front counter }
+        kind: { type: string, enum: [receipt, document] }
+        paper: { type: string, maxLength: 20, example: 80mm, description: '`58mm`, `80mm`, or a sheet size such as `A4`.' }
+        level: { type: string, enum: [ok, warning, error, off] }
+        title: { type: string, maxLength: 120, example: Ready }
+        detail: { type: string, maxLength: 240 }
+        isDefault: { type: boolean, description: The default printer for its kind. }
+    Error:
+      type: object
+      properties:
+        error:
+          type: object
+          properties:
+            code: { type: string, example: PAIRING_CODE_INVALID }
+            message: { type: string, example: That code is wrong or has expired. }
+  responses:
+    Revoked:
+      description: Unknown or revoked token. The bridge stops and asks the shop to pair again.
+      content:
+        application/json:
+          schema: { $ref: '#/components/schemas/Error' }

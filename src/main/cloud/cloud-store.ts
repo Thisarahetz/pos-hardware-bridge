@@ -2,13 +2,13 @@ import { safeStorage } from 'electron';
 import store from '../config-store';
 
 /**
- * Where this computer's link to AI POS is kept. Separate from the rest of the
+ * Where this computer's link to the online POS is kept. Separate from the rest of the
  * settings because it holds the station token, which must never reach the
  * settings window or the local API: the token lets whoever has it receive the
  * shop's bills.
  */
 export interface CloudLink {
-  /** The AI POS API base, e.g. https://api.example.com/api/v1 */
+  /** The online POS API base, e.g. https://api.example.com/api/v1 */
   serverUrl: string;
   stationId: string;
   stationName: string;

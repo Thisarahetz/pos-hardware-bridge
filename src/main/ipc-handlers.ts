@@ -1,6 +1,5 @@
 import { app, clipboard, ipcMain, shell } from 'electron';
 import { log } from './logger';
-import os from 'node:os';
 import { disconnectStation, getCloudState, pairStation } from './cloud/cloud-client';
 import {
   getConfig,
@@ -21,6 +20,7 @@ import type { PrinterProfile } from './types';
 import { charge, listSerialPorts, resetTerminalConnection } from './terminal/terminal.service';
 import { getStatus, refreshStatus } from './status-monitor';
 import { applyLaunchAtLogin } from './autostart';
+import { bridgeName, cancelPairing, getLanState, removeDevice, renameDevice, startPairing } from './lan/devices';
 
 type Result<T = undefined> = { ok: true; value?: T } | { ok: false; error: string };
 
@@ -41,7 +41,9 @@ export function registerIpcHandlers(): void {
   ipcMain.handle('config:update', async (_evt, patch: ConfigPatch) => {
     const before = getConfig();
     const next = updateConfig(patch);
-    if (patch.server && before.server.port !== next.server.port) restartServer();
+    if (patch.server && (before.server.port !== next.server.port || before.server.allowNetwork !== next.server.allowNetwork)) {
+      restartServer();
+    }
     if (patch.terminal) resetTerminalConnection();
     if (patch.app) applyLaunchAtLogin();
     void refreshStatus();
@@ -49,6 +51,7 @@ export function registerIpcHandlers(): void {
   });
 
   ipcMain.handle('config:regenerate-token', () => regenerateAuthToken());
+  ipcMain.handle('app:open-docs', () => shell.openExternal(`http://127.0.0.1:${getConfig().server.port}/docs`));
   ipcMain.handle('app:open-logs', () => shell.openPath(log.dir() ?? app.getPath('logs')));
   ipcMain.handle('clipboard:write', (_evt, text: string) => clipboard.writeText(String(text)));
 
@@ -113,7 +116,22 @@ export function registerIpcHandlers(): void {
     attempt(() => pairStation(String(serverUrl ?? ''), String(code ?? ''), String(name ?? ''))),
   );
   ipcMain.handle('cloud:disconnect', () => attempt(disconnectStation));
-  ipcMain.handle('cloud:default-name', () => os.hostname().replace(/\.local$/, ''));
+  ipcMain.handle('cloud:default-name', () => bridgeName());
+
+  ipcMain.handle('lan:get', () => getLanState());
+  ipcMain.handle('lan:set-enabled', (_evt, enabled: boolean) =>
+    attempt(async () => {
+      const before = getConfig().server.allowNetwork;
+      updateConfig({ server: { allowNetwork: Boolean(enabled) } });
+      if (!enabled) cancelPairing();
+      if (before !== Boolean(enabled)) restartServer();
+      return getLanState();
+    }),
+  );
+  ipcMain.handle('lan:start-pairing', () => attempt(() => startPairing()));
+  ipcMain.handle('lan:cancel-pairing', () => attempt(() => cancelPairing()));
+  ipcMain.handle('lan:remove-device', (_evt, id: string) => attempt(() => removeDevice(String(id))));
+  ipcMain.handle('lan:rename-device', (_evt, id: string, name: string) => attempt(() => renameDevice(String(id), String(name ?? ''))));
 
   ipcMain.handle('test:terminal-charge', () =>
     attempt(() => charge({ amountMinorUnits: 100, currency: 'USD', reference: `test-${Date.now()}` })),

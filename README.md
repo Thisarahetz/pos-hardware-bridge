@@ -15,6 +15,13 @@ directly, so the POS sends simple HTTP requests to this bridge on
   printer is ready, and tell the cashier exactly what to do when it isn't.
 - **Always on** – starts with the computer, stays in the tray, and recovers
   by itself after sleep, unplugging, or errors.
+- **One printer computer for the whole shop** – phones, tablets and other
+  tills print here too: over the shop Wi-Fi after pairing with a code, or from
+  anywhere through your POS backend with the open
+  [print station protocol](docs/print-station.openapi.yaml).
+- **For any POS** – a documented API ([OpenAPI spec](docs/openapi.yaml), also
+  served by the bridge at `http://127.0.0.1:9191/docs`) and an npm SDK
+  ([`packages/sdk`](packages/sdk#readme)). The POS never configures printers.
 
 ---
 
@@ -22,12 +29,13 @@ directly, so the POS sends simple HTTP requests to this bridge on
 
 1. [Install (shop computer)](#install-shop-computer)
 2. [First-time setup](#first-time-setup)
-3. [Connect your POS – quick start](#connect-your-pos--quick-start)
-4. [API reference](#api-reference)
-5. [Best practices for POS developers](#best-practices-for-pos-developers)
-6. [Troubleshooting](#troubleshooting)
-7. [Development](#development)
-8. [Security notes](#security-notes)
+3. [Print from other devices](#print-from-other-devices)
+4. [Connect your POS – quick start](#connect-your-pos--quick-start)
+5. [API reference](#api-reference)
+6. [Best practices for POS developers](#best-practices-for-pos-developers)
+7. [Troubleshooting](#troubleshooting)
+8. [Development](#development)
+9. [Security notes](#security-notes)
 
 ---
 
@@ -73,8 +81,8 @@ not stop it. To turn auto-start off: tray icon → untick **Start with computer*
    (for example `kitchen`).
 5. *(Optional)* Card terminal: tick **Use a card terminal**, pick its port,
    and click **Test $1.00 charge**.
-6. Under **Connect your POS**, copy the **Bridge address** and **Access token**
-   into your POS settings.
+6. Under **Connect your POS → On this computer**, copy the **Address** and
+   **Password** (the access token) into your POS settings.
 
 Each printer has an **API name** (shown on its card). The POS uses it to choose
 the printer. The first printer of each type is the **default** for that type;
@@ -91,7 +99,72 @@ use **Make default** in a printer's settings to change it.
 
 ---
 
-## Print from any POS device (AI POS)
+## Print from other devices
+
+Connect the printers to **one computer** and run the bridge there. Every
+other device prints to it, and no POS needs any printer setup: it asks the
+bridge for its printers (`GET /printers`) and prints to one by name.
+
+| | Shop Wi-Fi | Print station (through your POS backend) |
+| --- | --- | --- |
+| Works for | Native, Electron, Android/iOS apps on the shop network | Every device, any network, including hosted web POS |
+| Your POS needs | Nothing extra: call the bridge directly | Five backend routes ([protocol](docs/print-station.openapi.yaml)) |
+| Setup at the shop | Turn on, pair each device with a code | Pair the printer computer once with a code |
+| Card payments | No, printer computer only | No |
+
+### Shop Wi-Fi: pair phones, tablets and tills
+
+1. In the bridge, open **Connect your POS → Phones & tablets** and turn on
+   **Let phones and tablets print here**.
+   Allow the bridge if the firewall asks (Windows asks once).
+2. Click **Get a code**. A 6-digit code appears, valid for 10 minutes and
+   one device.
+3. In the POS app on the device, enter the bridge address shown in the card
+   (for example `http://192.168.1.20:9191`) and the code. The app calls
+   `POST /pair` and saves the device token it gets back.
+
+With the SDK:
+
+```js
+import { BridgeClient } from 'pos-hardware-bridge';
+
+// Once, on the tablet:
+const { url, token } = await BridgeClient.pair({ url: 'http://192.168.1.20:9191', code: '482 913', name: 'Kitchen tablet' });
+// save url + token, then from now on:
+const bridge = new BridgeClient({ url, token });
+const printers = await bridge.printers(); // offer these in a "Print to…" menu
+await bridge.print(bill, { printer: 'kitchen' });
+```
+
+Paired devices are listed in the bridge with when they were last used, and
+can be renamed or removed at any time. Removing one cuts it off immediately.
+A device token can print and read status; card payments only work from the
+printer computer, and the computer's own access token is refused from the
+network.
+
+**Finding the bridge automatically:** it announces itself with mDNS/Bonjour
+as `_pos-bridge._tcp` (TXT records `id`, `name`, `version`), so a native app
+can list bridges on the network instead of asking for the address.
+`GET /health` (no token) answers with the bridge's `id` and `name` too.
+
+> **Hosted web POS:** a page served over `https://` can't call a plain
+> `http://192.168.x.x` address (browsers block it as mixed content). Use the
+> print station protocol below, or wrap the POS as a native/Electron app.
+
+### Print station: any device, through your POS backend
+
+Your POS backend queues print jobs; the bridge keeps one outgoing connection
+to it and prints them. The printer computer needs no open ports or fixed IP,
+and devices print from anywhere, even on mobile data.
+
+To add this to **your** POS, implement the five routes in
+[docs/print-station.openapi.yaml](docs/print-station.openapi.yaml): pair,
+long-poll for jobs, report results, heartbeat with the printers, disconnect.
+The spec spells out the rules that keep a bill from printing twice or late.
+The shop then enters your server address and a code in the bridge's
+**Connect your POS → With a code** tab. AI POS is a complete implementation of it.
+
+### Print from any POS device (AI POS)
 
 With AI POS, **every till, tablet and phone in the shop can print to the
 printers on this computer**, even devices on mobile data. This computer
@@ -200,7 +273,7 @@ await printReceipt({
 ```
 
 The same example, with your real address and token filled in, is in the
-settings window under **Connect your POS → Developer details → Copy example**.
+settings window under **Connect your POS → On this computer → For developers → Copy example**.
 
 Or with curl:
 
@@ -217,13 +290,21 @@ curl -X POST http://127.0.0.1:9191/print/receipt \
 
 ## API reference
 
-Base URL: `http://127.0.0.1:<port>` (default port `9191`). All request and
+The full, machine-readable reference is [docs/openapi.yaml](docs/openapi.yaml)
+(OpenAPI 3); generate a client from it in any language. A running bridge also
+serves it, with a readable viewer, at `http://127.0.0.1:9191/docs`.
+
+Base URL: `http://127.0.0.1:<port>` (default port `9191`), or the address in
+the **Phones & tablets** tab from a paired device. All request and
 response bodies are JSON. **All money values are whole numbers in minor
 units** (cents): `12.50` is sent as `1250`.
 
 | Method | Path | Auth | Purpose |
 | --- | --- | --- | --- |
-| `GET` | `/health` | – | Is the bridge running? Are devices ready? |
+| `GET` | `/health` | – | Is the bridge running? Are devices ready? Includes the bridge's `id` and `name` |
+| `POST` | `/pair` | – | A device on the shop network swaps the 6-digit code for its own token |
+| `GET` | `/me` | ✔ | Whether this token is the printer computer or a paired device |
+| `GET` | `/docs` | – | This API reference in a browser (`/openapi.yaml` for the spec) |
 | `GET` | `/status` | ✔ | Plain-language device status to show the cashier |
 | `GET` | `/printers` | ✔ | All configured printers with their API names and status |
 | `POST` | `/print/receiptline` | ✔ | **Recommended.** Print a ReceiptLine receipt with the printer's own fonts |
@@ -232,7 +313,7 @@ units** (cents): `12.50` is sent as `1250`.
 | `POST` | `/print/document` | ✔ | Print an A4/A5 invoice or document (HTML or PDF) |
 | `POST` | `/print/page` | ✔ | Print a ready-made HTML bill on any printer (thermal printers print it as an image) |
 | `POST` | `/print/test` | ✔ | Print a test page (`{"printer":"…"}` optional) |
-| `POST` | `/terminal/charge` | ✔ | Take a card payment |
+| `POST` | `/terminal/charge` | ✔ local | Take a card payment (printer computer only) |
 | `POST` | `/terminal/cancel` | ✔ | Cancel a payment in progress |
 | `GET` | `/terminal/status` | ✔ | `{ "connected": boolean }` |
 | `WS` | `/events?token=…` | ✔ | Live status and payment updates |
@@ -444,6 +525,9 @@ like `{ "event": "<name>", "payload": { … } }`:
 | `bridge.status` | same as `GET /status` | Whenever a device's status changes (plugged, unplugged, paused…) |
 | `terminal.status` | `{ status, reference, … }` | Payment progress: `pending` → `approved` / `declined` / … |
 
+`terminal.status` goes to the printer computer only, never to paired
+devices. A device removed in the bridge is disconnected with close code `4401`.
+
 ### Errors
 
 Errors always come back as JSON with an `error` message:
@@ -452,6 +536,8 @@ Errors always come back as JSON with an `error` message:
 | --- | --- | --- |
 | `400` | The request is wrong; `details` lists every problem | `{"error":"Invalid receipt","details":["\"currency\" must be a 3-letter code such as \"USD\" or \"LKR\""]}` |
 | `401` | Missing or wrong token | `{"error":"unauthorized"}` |
+| `403` | Not allowed from here: card payments from a paired device, the access token from another machine, or network access is off | `{"error":"Card payments can only be started from the computer the card terminal is connected to."}` |
+| `429` | Too many pairing attempts | `{"error":"Too many attempts. Wait a minute and try again."}` |
 | `404` | No printer with that API name | `{"error":"No printer named \"kitchen\". Available printers: \"receipt\", \"invoice\"."}` |
 | `502` | The device failed; the message is written for the cashier | `{"error":"The printer is not connected. Check the USB cable and that the printer is turned on."}` |
 
@@ -548,7 +634,7 @@ or PWA build.
 | QR code missing, or random characters where it should be | In the printer's **Settings**, set **QR codes** to **Print as image**. That works on every printer. |
 | QR code won't scan | Use a shorter link, or send `"size": "large"`. |
 | POS says *unauthorized* | Copy the access token from settings into the POS again. |
-| *API stopped – port in use* | Another program uses port 9191. The bridge keeps retrying. Close that program, or change the port under Developer details and update the POS. |
+| *Not running – port in use* | Another program uses port 9191. The bridge keeps retrying. Close that program, or change the port under **For developers** and update the POS. |
 | Need logs for support | Tray icon → **Open log folder** → send `bridge.log`. |
 
 ---
@@ -602,7 +688,9 @@ The app icon (`build/icon.png`) is drawn by code: `npm run icon` regenerates it.
 ```
 src/main/
   index.ts              App lifecycle, tray, notifications, auto-start, crash recovery
-  server.ts             Local HTTP + WebSocket API (127.0.0.1 only)
+  server.ts             HTTP + WebSocket API (127.0.0.1, or the shop network when allowed)
+  auth.ts               Who is calling: this computer (access token) or a paired device
+  lan/                  Shop network: device pairing, tokens, mDNS announcement
   validation.ts         Request body checks → 400 with field-level details
   status-monitor.ts     Polls devices every 4 s, auto-setup, plain-language status
   printer/
@@ -640,11 +728,17 @@ their own vendor protocols. For those, implement `TerminalDriver`
 
 ## Security notes
 
-- The API listens on `127.0.0.1` only and can never be reached from another
-  computer.
+- By default the API listens on `127.0.0.1` only and can't be reached from
+  another computer. **Let phones and tablets print here** opens it to the shop
+  network. Other machines then still need a device token, which they can
+  only get with a fresh 6-digit code shown on the printer computer: single
+  use, 10 minutes, 5 wrong guesses and it's gone, 10 attempts a minute per
+  address. Device tokens are stored hashed, can't take card payments, and are
+  revoked by **Remove**. Traffic on the shop network is plain HTTP, so only
+  turn it on for a network you trust (not open guest Wi-Fi).
 - The access token is a shared secret between the bridge and the POS on the
-  same machine. It stops other local programs and web pages from printing or
-  charging cards. Regenerate it from **Developer details** if it leaks, then
+  same machine, and is refused from any other machine. It stops other local programs and web pages from printing or
+  charging cards. Regenerate it from **For developers → Make a new password** if it leaks, then
   update the POS.
 - The generic serial terminal path does not reduce PCI-DSS scope (for
   example with P2PE). That responsibility sits with the terminal and its

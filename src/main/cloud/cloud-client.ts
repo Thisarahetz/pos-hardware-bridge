@@ -18,7 +18,7 @@ import {
 } from './cloud-store';
 
 /**
- * The bridge as an AI POS "print station": any POS device in the shop can
+ * The bridge as a "print station" for an online POS: any POS device in the shop can
  * print here. The bridge makes every connection itself (a long-poll that the
  * backend answers as soon as a print is queued), so the printer computer
  * needs no open ports, fixed IP or router setup, and works on any network.
@@ -54,7 +54,7 @@ const MAX_BACKOFF_MS = 30_000;
 
 export const cloudEvents = new EventEmitter();
 
-let state: CloudState = { state: 'off', message: 'Not connected to AI POS.', serverUrl: '' };
+let state: CloudState = { state: 'off', message: 'Not connected.', serverUrl: '' };
 let running = false;
 let pollAbort: AbortController | null = null;
 let wake: (() => void) | null = null;
@@ -82,10 +82,15 @@ export function getCloudState(): CloudState {
   return state;
 }
 
-/** Accept "api.shop.com", "https://api.shop.com" or ".../api/v1"; return the API base. */
+/**
+ * Accept "api.shop.com", "https://api.shop.com" or a full base such as
+ * "https://pos.example.com/api/v1" or "https://pos.example.com/printing";
+ * return the API base the /print-station/... routes hang off. A bare host gets
+ * "/api/v1"; a POS with another path types the full address.
+ */
 export function normalizeServerUrl(input: string): string {
   let text = input.trim().replace(/\/+$/, '');
-  if (!text) throw new Error('Enter the AI POS server address.');
+  if (!text) throw new Error('Type your POS website address.');
   const isLocal = (host: string) => /^(localhost|127\.|10\.|192\.168\.|172\.(1[6-9]|2\d|3[01])\.)/.test(host);
   // No scheme typed: a server on this computer or the shop network is plain
   // http; anything on the internet must be https.
@@ -93,9 +98,9 @@ export function normalizeServerUrl(input: string): string {
   const url = new URL(text);
   const local = isLocal(url.hostname);
   if (url.protocol !== 'https:' && !local) {
-    throw new Error('Use an https:// address, so the connection to AI POS is encrypted.');
+    throw new Error('Use an https:// address, so the connection to your POS is encrypted.');
   }
-  if (!/\/api\/v\d+$/.test(url.pathname)) url.pathname = `${url.pathname.replace(/\/+$/, '')}/api/v1`;
+  if (url.pathname === '' || url.pathname === '/') url.pathname = '/api/v1';
   return url.toString().replace(/\/+$/, '');
 }
 
@@ -106,7 +111,7 @@ async function api<T>(
   opts: { serverUrl?: string; token?: string | null; timeoutMs?: number; signal?: AbortSignal } = {},
 ): Promise<T> {
   const serverUrl = opts.serverUrl ?? getCloudLink()?.serverUrl;
-  if (!serverUrl) throw new ApiError(0, 'NOT_LINKED', 'Not connected to AI POS.');
+  if (!serverUrl) throw new ApiError(0, 'NOT_LINKED', 'Not connected.');
   const token = opts.token === undefined ? getCloudToken() : opts.token;
   const signals = [AbortSignal.timeout(opts.timeoutMs ?? 15_000), ...(opts.signal ? [opts.signal] : [])];
   let res: Response;
@@ -122,7 +127,7 @@ async function api<T>(
     });
   } catch (err) {
     const aborted = err instanceof Error && (err.name === 'AbortError' || err.name === 'TimeoutError');
-    throw new ApiError(0, aborted ? 'ABORTED' : 'NETWORK', aborted ? 'Request stopped.' : `Can't reach AI POS at ${new URL(serverUrl).host}. Check the internet connection.`);
+    throw new ApiError(0, aborted ? 'ABORTED' : 'NETWORK', aborted ? 'Request stopped.' : `Can't reach your POS at ${new URL(serverUrl).host}. Check the internet connection.`);
   }
   const text = await res.text();
   let json: any = null;
@@ -133,7 +138,7 @@ async function api<T>(
   }
   if (!res.ok) {
     const e = json?.error ?? {};
-    const message = typeof e.message === 'string' ? e.message : Array.isArray(e.message) ? e.message.join('; ') : `AI POS answered ${res.status}.`;
+    const message = typeof e.message === 'string' ? e.message : Array.isArray(e.message) ? e.message.join('; ') : `Your POS answered ${res.status}.`;
     throw new ApiError(res.status, e.code ?? `HTTP_${res.status}`, message);
   }
   return json as T;
@@ -233,7 +238,7 @@ async function sendHeartbeat(): Promise<void> {
     if (state.state !== 'connected' && running) {
       setState({
         state: 'connected',
-        message: `Connected to ${res.shopName}. Printing for every POS device in the shop.`,
+        message: `Printing for every device in ${res.shopName}.`,
         shopName: res.shopName,
         stationName: res.stationName,
       });
@@ -259,7 +264,7 @@ function handleRemoved(): void {
   clearCloudLink();
   setState({
     state: 'removed',
-    message: `This computer was removed from ${shop} in AI POS. Pair it again to keep printing.`,
+    message: `This computer was removed from ${shop} in your POS. Get a new code in your POS and connect again to keep printing.`,
     shopName: undefined,
     stationName: undefined,
   });
@@ -272,7 +277,7 @@ async function loop(): Promise<void> {
     const link = getCloudLink();
     if (!link || !getCloudToken()) {
       running = false;
-      setState({ state: 'off', message: 'Not connected to AI POS.' });
+      setState({ state: 'off', message: 'Not connected.' });
       return;
     }
     try {
@@ -286,7 +291,7 @@ async function loop(): Promise<void> {
       );
       backoff = 1000;
       if (state.state !== 'connected') {
-        setState({ state: 'connected', message: `Connected to ${link.shopName}. Printing for every POS device in the shop.` });
+        setState({ state: 'connected', message: `Printing for every device in ${link.shopName}.` });
       }
       for (const job of res.jobs ?? []) await handleJob(job);
     } catch (err) {
@@ -313,12 +318,12 @@ function stopLoop(): void {
   heartbeatTimer = null;
 }
 
-/** Start printing for AI POS if this computer is paired. Safe to call again. */
+/** Start printing for the online POS if this computer is paired. Safe to call again. */
 export function startCloud(): void {
   const link = getCloudLink();
   state = { ...state, serverUrl: link?.serverUrl ?? lastServerUrl() };
   if (!link) {
-    setState({ state: state.state === 'removed' ? 'removed' : 'off', message: state.state === 'removed' ? state.message : 'Not connected to AI POS.' });
+    setState({ state: state.state === 'removed' ? 'removed' : 'off', message: state.state === 'removed' ? state.message : 'Not connected.' });
     return;
   }
   if (running) return;
@@ -340,7 +345,7 @@ export function kickCloud(): void {
 export async function pairStation(serverInput: string, code: string, name: string): Promise<CloudState> {
   const serverUrl = normalizeServerUrl(serverInput);
   const cleanCode = code.replace(/\D/g, '');
-  if (cleanCode.length !== 6) throw new Error('Enter the 6-digit code shown in POS Settings → Printers.');
+  if (cleanCode.length !== 6) throw new Error('Type the 6-digit code from your POS.');
   const stationName = name.trim() || os.hostname();
   const res = await api<{ stationId: string; token: string; stationName: string; shopName: string }>(
     'POST',
@@ -350,7 +355,7 @@ export async function pairStation(serverInput: string, code: string, name: strin
   );
   stopLoop();
   saveCloudLink({ serverUrl, stationId: res.stationId, stationName: res.stationName, shopName: res.shopName }, res.token);
-  log.info(`paired with AI POS as "${res.stationName}" for ${res.shopName}`);
+  log.info(`paired with online POS as "${res.stationName}" for ${res.shopName}`);
   state = { state: 'off', message: '', serverUrl };
   startCloud();
   return state;
@@ -364,7 +369,7 @@ export async function disconnectStation(): Promise<CloudState> {
     await api('DELETE', '/print-station/me').catch((err) => log.warn(`disconnect call failed: ${err.message}`));
   }
   clearCloudLink();
-  setState({ state: 'off', message: 'Not connected to AI POS.', shopName: undefined, stationName: undefined, lastJob: undefined, serverUrl: link?.serverUrl ?? state.serverUrl });
+  setState({ state: 'off', message: 'Not connected.', shopName: undefined, stationName: undefined, lastJob: undefined, serverUrl: link?.serverUrl ?? state.serverUrl });
   return state;
 }
 

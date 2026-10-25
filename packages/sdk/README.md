@@ -106,10 +106,13 @@ const bridge = new BridgeClient({
 | `print(receipt, { printer?, copies?, cut?, title? })` | Print a receipt |
 | `preview(receipt, { printer? })` | `{ svg, cpl }`: the receipt exactly as it will print, for your screen |
 | `printDocument({ html } \| { pdfBase64 }, { printer?, paperSize?, landscape?, copies? })` | Print an A4/A5 invoice |
+| `printPage(html, { printer?, format?, copies?, title? })` | Print a ready-made HTML bill (thermal printers print it as an image) |
 | `printTestPage(printer?)` | The bridge's test page |
 | `printers()` | Printers with API names and live status |
 | `status()` | Plain-language status to show the cashier |
-| `health()` | Is the bridge running? (no token needed) |
+| `health()` | Is the bridge running? Its `id` and `name` (no token needed) |
+| `me()` | `{ kind: 'local' }` on the printer computer, or the paired device's name |
+| `BridgeClient.pair({ url, code, name })` | Pair a phone/tablet/till; returns `{ url, token }` to save |
 | `onStatus(listener)` | Live updates (printer unplugged, back online); returns `stop()` |
 
 Errors are `BridgeError`s whose `message` is written for the cashier (*"The
@@ -126,12 +129,42 @@ try {
 }
 ```
 
+### A printer menu, with no printer settings in your POS
+
+The bridge owns the printer setup. Your POS just lists what's there:
+
+```js
+const printers = await bridge.printers();
+// [{ id: 'receipt', name: 'Front counter', kind: 'receipt', isDefault: true, ready: true, status: {…} }, …]
+const choices = printers.map((p) => ({ value: p.id, label: `${p.name}${p.ready ? '' : ` (${p.status?.title})`}` }));
+await bridge.print(bill, { printer: chosenId }); // or leave printer out for the default
+```
+
 ### Printing from tablets and phones
 
-A browser can only reach a bridge on its own computer. To print from other
-devices, pair the bridge with your backend as a *print station*, and send
-the same ReceiptLine document as a print job. See the
-[bridge README](https://github.com/Thisarahetz/pos-hardware-bridge#print-from-any-pos-device-ai-pos).
+**On the shop Wi-Fi:** the shop opens *Connect your POS → Phones & tablets* in the
+bridge, turns it on and clicks *Get a code*. Your app pairs once and saves the result:
+
+```js
+const { url, token } = await BridgeClient.pair({
+  url: 'http://192.168.1.20:9191', // shown in the bridge's Phones & tablets tab
+  code: '482 913',                 // shown after "Get a code"
+  name: 'Kitchen tablet',
+});
+const bridge = new BridgeClient({ url, token });
+```
+
+Paired devices can print and read status, not take card payments. Native
+apps can find bridges with mDNS (`_pos-bridge._tcp`). A web page served over
+`https://` can't call a local `http://` address, so for a hosted web POS use:
+
+**Through your backend (any network):** implement the
+[print station protocol](https://github.com/Thisarahetz/pos-hardware-bridge/blob/master/docs/print-station.openapi.yaml)
+on your server, pair the bridge with it once, and queue the same ReceiptLine
+document (`String(receipt)`) as a print job.
+
+Full API reference: [openapi.yaml](https://github.com/Thisarahetz/pos-hardware-bridge/blob/master/docs/openapi.yaml),
+or `http://127.0.0.1:9191/docs` on any computer running the bridge.
 
 ## License
 

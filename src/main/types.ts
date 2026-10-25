@@ -65,6 +65,9 @@ export interface TerminalConfig {
 export interface ServerConfig {
   port: number;
   authToken: string;
+  /** Let paired phones, tablets and other tills on the shop network print here.
+   * Off: the API is reachable from this computer only (127.0.0.1). */
+  allowNetwork: boolean;
 }
 
 export interface AppSettings {

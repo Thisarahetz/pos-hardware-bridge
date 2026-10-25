@@ -10,12 +10,15 @@ import { cloudEvents, getCloudState, kickCloud, startCloud, type CloudState } fr
 import { printTestPage } from './printer/printer.service';
 import { refreshStatus, startStatusMonitor, statusEvents, stopStatusMonitor } from './status-monitor';
 import { trayIcon } from './tray-icon';
+import { lanEvents, type LanState } from './lan/devices';
 import type { BridgeStatus, DeviceStatus, PrinterProfile, StatusLevel } from './types';
 
 let tray: Tray | null = null;
 let settingsWindow: BrowserWindow | null = null;
 let isQuitting = false;
 let lastStatus: BridgeStatus | null = null;
+let trayMenu: Menu | null = null;
+const readyWindows = new WeakSet<BrowserWindow>();
 const launchedHidden = startedAtLogin();
 
 // Never let an unexpected error kill the bridge or pop up a dialog that blocks
@@ -39,6 +42,7 @@ function createSettingsWindow(): BrowserWindow {
       nodeIntegration: false,
     },
   });
+  win.once('ready-to-show', () => readyWindows.add(win));
   win.loadFile(path.join(__dirname, '../../src/renderer/settings/index.html'));
   win.on('close', (event) => {
     // Hide instead of quit — the bridge keeps serving the local API from the tray.
@@ -57,16 +61,32 @@ function createSettingsWindow(): BrowserWindow {
   return win;
 }
 
+function revealWindow(win: BrowserWindow): void {
+  if (win.isDestroyed()) return;
+  if (win.isMinimized()) win.restore();
+  win.show();
+  // macOS: with the Dock icon hidden the app isn't active, so a plain show()
+  // leaves the window behind everything else. Bring the app to the front.
+  if (process.platform === 'darwin') app.focus({ steal: true });
+  win.focus();
+}
+
 function showSettingsWindow(): void {
   if (!settingsWindow || settingsWindow.isDestroyed()) {
     settingsWindow = createSettingsWindow();
   }
-  if (settingsWindow.webContents.isLoading()) {
-    settingsWindow.once('ready-to-show', () => settingsWindow?.show());
-  } else {
-    settingsWindow.show();
+  const win = settingsWindow;
+  // 'ready-to-show' fires only once per window, so only wait for it on a
+  // window that hasn't painted yet.
+  if (!readyWindows.has(win)) {
+    win.once('ready-to-show', () => revealWindow(win));
+    return;
   }
-  settingsWindow.focus();
+  if (process.platform === 'darwin' && app.dock) {
+    void app.dock.show().then(() => revealWindow(win));
+  } else {
+    revealWindow(win);
+  }
 }
 
 function sendToWindow(channel: string, payload: unknown): void {
@@ -138,16 +158,16 @@ function rebuildTray(status: BridgeStatus | null = lastStatus): void {
     const cloudText =
       cloud.state === 'connected' ? `printing for ${cloud.shopName}`
       : cloud.state === 'connecting' ? 'connecting…'
-      : cloud.state === 'removed' ? 'removed — pair again'
+      : cloud.state === 'removed' ? 'removed, connect again'
       : 'offline, retrying';
-    items.push({ label: `${cloudDot}  AI POS: ${cloudText}`, click: showSettingsWindow });
+    items.push({ label: `${cloudDot}  Online POS: ${cloudText}`, click: showSettingsWindow });
   }
   items.push(
     { type: 'separator' },
     { label: 'Open settings…', click: showSettingsWindow },
-    { label: 'Copy API token', click: () => clipboard.writeText(getConfig().server.authToken) },
+    { label: 'Copy POS password', click: () => clipboard.writeText(getConfig().server.authToken) },
     {
-      label: status?.api.running === false ? `⚠️  API not running — ${status.api.error ?? ''}` : `API: http://127.0.0.1:${port}`,
+      label: status?.api.running === false ? `⚠️  Not running: ${status.api.error ?? ''}` : `Address: http://127.0.0.1:${port}`,
       enabled: false,
     },
     { type: 'separator' },
@@ -172,7 +192,10 @@ function rebuildTray(status: BridgeStatus | null = lastStatus): void {
       },
     },
   );
-  tray.setContextMenu(Menu.buildFromTemplate(items));
+  trayMenu = Menu.buildFromTemplate(items);
+  // macOS: setContextMenu would swallow left clicks, so the menu is opened by
+  // hand on right click instead (see createTray).
+  if (process.platform !== 'darwin') tray.setContextMenu(trayMenu);
 }
 
 function updateMenuItem(): Electron.MenuItemConstructorOptions {
@@ -190,8 +213,16 @@ function updateMenuItem(): Electron.MenuItemConstructorOptions {
 
 function createTray(): void {
   tray = new Tray(trayIcon('off'));
-  // Windows/Linux: left click opens settings (macOS always shows the menu).
-  if (process.platform !== 'darwin') tray.on('click', showSettingsWindow);
+  // Left click opens settings; right click (or Ctrl-click on macOS) shows the menu.
+  tray.on('click', (event) => {
+    if (process.platform === 'darwin' && event.ctrlKey && trayMenu) tray?.popUpContextMenu(trayMenu);
+    else showSettingsWindow();
+  });
+  if (process.platform === 'darwin') {
+    tray.on('right-click', () => {
+      if (trayMenu) tray?.popUpContextMenu(trayMenu);
+    });
+  }
   rebuildTray(null);
 }
 
@@ -242,8 +273,10 @@ function watchStatus(): void {
     rebuildTray();
     sendToWindow('cloud:state', cloud);
   });
+  lanEvents.on('changed', (lan: LanState) => sendToWindow('lan:changed', lan));
+
   cloudEvents.on('removed', (shop: string) => {
-    notify('Print station removed', `This computer no longer prints for ${shop}. Pair it again from the bridge settings.`);
+    notify('Disconnected from your POS', `This computer no longer prints for ${shop}. Get a new code in your POS and connect again.`);
   });
 }
 
