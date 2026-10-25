@@ -176,6 +176,17 @@ function printerSettings(p, isDefault) {
           changePrinter(p.id, v === 'none' && (p.feedLines ?? 3) < 4 ? { cutter: v, feedLines: 4 } : { cutter: v }, 'Cutter setting saved'),
         ),
       ),
+      ...(p.connection.type === 'system'
+        ? [
+            option(
+              'Print bills',
+              'Printer driver prints the bill exactly as designed in the POS (logo, fonts, layout), sharp — needs the printer maker’s driver installed on this computer. Direct prints plain text in the printer’s own fonts and works with any printer. Auto uses the driver when one is installed.',
+              segmented([['auto', 'Auto'], ['driver', 'Printer driver'], ['direct', 'Direct']], p.billPrint ?? 'auto', (v) =>
+                changePrinter(p.id, { billPrint: v }, 'Bill printing saved'),
+              ),
+            ),
+          ]
+        : []),
       option(
         'QR codes',
         'Print as image works on every printer. Built-in is sharper and faster, but only if your printer supports it. Use Test print to check.',

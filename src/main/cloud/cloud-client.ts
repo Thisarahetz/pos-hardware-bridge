@@ -1,10 +1,13 @@
 import { app } from 'electron';
 import { EventEmitter } from 'node:events';
 import os from 'node:os';
-import { getConfig } from '../config-store';
+import { getConfig, resolvePrinter } from '../config-store';
 import { log } from '../logger';
-import { printHtmlPage, printTestPage } from '../printer/printer.service';
+import { billsViaDriver, printHtmlPage, printTestPage } from '../printer/printer.service';
 import { printReceiptLine } from '../printer/receiptline.service';
+import { printReceiptBlocks } from '../printer/receipt-blocks.service';
+import { checkBlocks } from '../validation';
+import type { ReceiptBlock } from '../types';
 import { getStatus, statusEvents } from '../status-monitor';
 import {
   clearCloudLink,
@@ -43,6 +46,8 @@ interface StationJob {
   html: string | null;
   /** A ReceiptLine document: printed with the printer's own fonts. */
   receiptline?: string | null;
+  /** A receipt line by line, printed with the printer's own commands. */
+  receipt?: { blocks?: unknown } | null;
   format: string | null;
   title: string | null;
   copies: number;
@@ -162,6 +167,23 @@ async function printJob(job: StationJob): Promise<void> {
     await printTestPage(job.printer ?? undefined);
     return;
   }
+  // Line by line: printed with the printer's own commands (sharp, any printer).
+  if (job.receipt) {
+    const problems = checkBlocks(job.receipt.blocks);
+    if (problems.length) throw new Error(`The receipt could not be printed: ${problems.slice(0, 3).join('; ')}`);
+    await printReceiptBlocks({ blocks: job.receipt.blocks as ReceiptBlock[] }, job.printer ?? undefined, { copies: job.copies, title: job.title });
+    return;
+  }
+  // A bill can come both ways: the page itself (its exact design) and as
+  // ReceiptLine text. A receipt printer with its own driver prints the page;
+  // one without (a raw queue, or reached by IP address) prints the text.
+  if (job.receiptline && job.html) {
+    const profile = resolvePrinter('receipt', job.printer ?? undefined);
+    if (await billsViaDriver(profile)) {
+      await printHtmlPage(job.html, profile.id, { format: job.format, copies: job.copies, title: job.title });
+      return;
+    }
+  }
   if (job.receiptline) {
     await printReceiptLine(job.receiptline, job.printer ?? undefined, { copies: job.copies, title: job.title });
     return;
@@ -219,6 +241,8 @@ function printerReport() {
       name: p.name.slice(0, 80),
       kind: p.kind,
       paper: p.kind === 'document' ? p.paperSize : p.paperWidthChars <= 32 ? '58mm' : '80mm',
+      // Characters per line, so the POS previews receipts exactly as they print.
+      columns: p.kind === 'receipt' ? p.paperWidthChars : undefined,
       level: s?.level ?? 'off',
       title: (s?.title ?? 'Checking…').slice(0, 120),
       detail: s?.detail ? s.detail.slice(0, 240) : undefined,

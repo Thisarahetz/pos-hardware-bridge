@@ -180,11 +180,16 @@ POS, so it needs no open ports, fixed IP address or router setup.
    on, **Print bill** on any device prints here and shows *Printed ✓* or the
    printer's error.
 
-Bills print exactly as the POS shows them. On a thermal printer the bill is
-printed as an image at the print head's width, so the logo, QR code and fonts
-come out as designed on any ESC/POS or Star printer. A4/A5 bills go through the
-office printer's driver. Light-grey text is printed darker so it doesn't
-disappear on thermal paper.
+How a bill prints on a thermal printer (bridge settings → printer → **Print bills**):
+- **Printer driver** — the bill exactly as the POS designs it (logo, fonts,
+  layout) goes through the printer maker's driver, which prints it sharp at
+  the printer's full resolution, on a page exactly as long as the bill. Needs
+  the maker's driver installed on this computer (not "Generic / Text Only").
+- **Direct** — the bill as ReceiptLine text in the printer's own fonts. Works
+  on any ESC/POS or Star printer, including ones reached by IP address.
+- **Auto** (default) — the driver when the printer has one, otherwise direct.
+
+A4/A5 bills go through the office printer's driver.
 
 **Built so a bill never prints twice or late:**
 - A print that isn't picked up within 2 minutes (for example, this computer is
@@ -311,7 +316,7 @@ units** (cents): `12.50` is sent as `1250`.
 | `POST` | `/preview/receiptline` | ✔ | The same receipt as an SVG, exactly as it will print |
 | `POST` | `/print/receipt` | ✔ | Print a receipt from structured JSON (thermal, or laid out on A4) |
 | `POST` | `/print/document` | ✔ | Print an A4/A5 invoice or document (HTML or PDF) |
-| `POST` | `/print/page` | ✔ | Print a ready-made HTML bill on any printer (thermal printers print it as an image) |
+| `POST` | `/print/page` | ✔ | Print a ready-made HTML bill on any printer (through the printer's driver when it has one) |
 | `POST` | `/print/test` | ✔ | Print a test page (`{"printer":"…"}` optional) |
 | `POST` | `/terminal/charge` | ✔ local | Take a card payment (printer computer only) |
 | `POST` | `/terminal/cancel` | ✔ | Cancel a payment in progress |
@@ -377,6 +382,41 @@ are written for cashiers, so you can show them as they are.
 
 ### `POST /print/receipt`
 
+**Line by line (recommended).** (Layout code shared with the POS preview: `src/main/printer/receipt-layout.ts`.) Send the receipt as a list of lines; the bridge
+prints each one with the printer's own commands and fonts — nothing is turned
+into HTML, a PDF or a picture — and wraps text to the paper (32 columns on
+58mm, 42/48 on 80mm). This is what AI POS sends for bills.
+
+```json
+{
+  "printer": "receipt",
+  "blocks": [
+    { "type": "text", "text": "MY SHOP", "align": "center", "bold": true, "size": "large" },
+    { "type": "text", "text": " PAID ", "align": "center", "bold": true, "invert": true },
+    { "type": "rule" },
+    { "type": "row", "left": "2 x Latte", "right": "9.00", "bold": true },
+    { "type": "text", "text": "Oat milk", "indent": 2 },
+    { "type": "rule", "style": "double" },
+    { "type": "row", "left": "TOTAL", "right": "9.00", "bold": true, "size": "tall" },
+    { "type": "qr", "data": "https://shop.example/o/1042", "label": "Scan to view this bill" },
+    { "type": "feed", "lines": 1 },
+    { "type": "text", "text": "Thank you!", "align": "center" }
+  ]
+}
+```
+
+| Line `type` | Fields |
+| --- | --- |
+| `text` | `text`, `align` (`left`/`center`/`right`), `bold`, `underline`, `invert` (white on black), `size` (`normal`/`wide`/`tall`/`large`), `indent` (0–8) |
+| `row` | `left`, `right` (kept on the right; a long `left` wraps beside it), `bold`, `size`, `indent` |
+| `rule` | `style`: `single` (`-----`) or `double` (`=====`) |
+| `qr` | `data`, `label` (caption under it), `size` (`small`/`medium`/`large`) — printed as set in the printer's **QR codes** setting |
+| `feed` | `lines` (1–10) blank lines |
+
+Also accepts `cut`, `copies` (1–5) and `title`. Up to 600 lines.
+
+**Fixed receipt.** The original body below still works:
+
 | Field | Type | Required | Notes |
 | --- | --- | --- | --- |
 | `printer` | string | | API name, e.g. `"kitchen"`. Defaults to the default receipt printer |
@@ -437,8 +477,9 @@ returns `{ svg, cpl, printer }` for showing the receipt on screen.
 ### `POST /print/page`
 
 Print a page laid out by the POS, the same way the AI POS print station does:
-a thermal printer renders it to an image at its print head's width, while an
-A4/A5 printer prints it through its driver.
+a thermal printer with its maker's driver installed prints it through that
+driver (see **Print bills** above); one without renders it to an image at its
+print head's width. An A4/A5 printer prints it through its driver.
 
 ```json
 { "html": "<!doctype html>…", "format": "80mm", "printer": "receipt", "copies": 1, "title": "Bill #1042" }

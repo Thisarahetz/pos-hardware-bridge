@@ -1,9 +1,9 @@
 import { printer as ThermalPrinter, types as PrinterTypes } from 'node-thermal-printer';
 import { resolvePrinter } from '../config-store';
 import type { PrinterProfile, ReceiptModel } from '../types';
-import { getBackend } from './backend';
+import { getBackend, hasGraphicsDriver } from './backend';
 import { ensureQueueReady } from './availability';
-import { money, printHtml, printPdf, receiptHtml, testPageHtml } from './document.service';
+import { money, printHtml, printHtmlOnRoll, printPdf, receiptHtml, testPageHtml } from './document.service';
 import { nativeCellSize, normalizeQr, printableDots, qrPngForReceipt } from './qr';
 import { renderHtmlToRaster } from './html-raster';
 import type { DocumentRequest } from '../validation';
@@ -34,7 +34,7 @@ export function finishReceipt(driver: Driver, profile: PrinterProfile, cut = tru
 }
 
 /** Centered QR code with an optional caption. */
-async function printQr(driver: Driver, profile: PrinterProfile, qr: ReturnType<typeof normalizeQr>): Promise<void> {
+export async function printQr(driver: Driver, profile: PrinterProfile, qr: ReturnType<typeof normalizeQr>): Promise<void> {
   driver.newLine();
   driver.alignCenter();
   if (profile.qrMode === 'native') {
@@ -204,6 +204,20 @@ export async function printDocument(request: DocumentRequest): Promise<PrinterPr
   }
 }
 
+/**
+ * Whether bills on this receipt printer go through its driver (the bill's own
+ * design, sharp) rather than straight to the printer. Only a printer added to
+ * the computer with its maker's driver can print pages; the raw queues
+ * plug-and-play setup creates ("Generic / Text Only") can't.
+ */
+export async function billsViaDriver(profile: PrinterProfile): Promise<boolean> {
+  if (profile.kind !== 'receipt' || profile.connection.type !== 'system') return false;
+  const mode = profile.billPrint ?? 'auto';
+  if (mode === 'direct') return false;
+  if (mode === 'driver') return true;
+  return hasGraphicsDriver(profile.connection.queueName);
+}
+
 /** CSS width a bill page was laid out for, by paper. */
 const CSS_WIDTH: Record<string, number> = { '58mm': 219, '80mm': 302 };
 
@@ -216,9 +230,10 @@ export interface HtmlPrintOptions {
 
 /**
  * Print a ready-made HTML page, as the POS lays out its bills. On a thermal
- * printer the page is rendered to an image at the print head's width and
- * printed as raster strips (same look as on screen, no printer driver needed);
- * on an A4/A5 printer it goes through the driver at the requested paper size.
+ * printer with its own driver installed the page goes through that driver
+ * (sharp, as a browser prints it); otherwise it is rendered to an image at the
+ * print head's width and printed as raster strips (no driver needed). On an
+ * A4/A5 printer it goes through the driver at the requested paper size.
  */
 export async function printHtmlPage(html: string, printerId: string | undefined, options: HtmlPrintOptions = {}): Promise<PrinterProfile> {
   const format = (options.format ?? '').toLowerCase();
@@ -230,6 +245,11 @@ export async function printHtmlPage(html: string, printerId: string | undefined,
     if (profile.kind === 'document') {
       const paperSize = format === 'a5' ? 'A5' : format === 'a4' ? 'A4' : profile.paperSize;
       await printHtml(profile, html, { docName, paperSize, copies });
+      return profile;
+    }
+    if (await billsViaDriver(profile)) {
+      const paperMm = profile.paperWidthChars <= 32 ? 58 : 80;
+      await printHtmlOnRoll(profile, html, { docName, copies, paperMm, designMm: format === '58mm' ? 58 : 80 });
       return profile;
     }
     const strips = await renderHtmlToRaster(html, {

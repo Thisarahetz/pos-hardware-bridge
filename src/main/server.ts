@@ -11,11 +11,12 @@ import { bridgeId, bridgeName, lanEvents, pairDevice, PairingError } from './lan
 import { startAdvertising, stopAdvertising } from './lan/advertise';
 import { printDocument, printHtmlPage, printReceipt, printTestPage } from './printer/printer.service';
 import { previewReceiptLine, printReceiptLine } from './printer/receiptline.service';
+import { printReceiptBlocks } from './printer/receipt-blocks.service';
 import { charge, cancel, terminalStatus, terminalEvents } from './terminal/terminal.service';
 import type { BridgeStatus } from './types';
 import { getStatus, refreshStatus, statusEvents } from './status-monitor';
 import { log } from './logger';
-import { validateCharge, validateDocument, validatePage, validatePrinterChoice, validateReceipt, validateReceiptLine, validateReference } from './validation';
+import { validateCharge, validateDocument, validatePage, validatePrinterChoice, validateReceipt, validateReceiptLine, validateReference, validateReceiptBlocks } from './validation';
 
 let httpServer: Server | null = null;
 let wss: WebSocketServer | null = null;
@@ -167,6 +168,22 @@ function buildApp() {
   });
 
   app.post('/print/receipt', async (req, res) => {
+    // Line by line: { "blocks": [ { "type": "text", … }, { "type": "row", … }, … ] }
+    if (req.body && typeof req.body === 'object' && 'blocks' in req.body) {
+      const lines = validateReceiptBlocks(req.body);
+      if (!lines.ok) {
+        res.status(400).json({ error: 'Invalid receipt', details: lines.problems });
+        return;
+      }
+      const { printer, cut, copies, title, blocks } = lines.value;
+      try {
+        const used = await printReceiptBlocks({ blocks }, printer, { cut, copies, title });
+        res.json({ ok: true, printer: used.id });
+      } catch (err) {
+        sendPrintError(res, err);
+      }
+      return;
+    }
     const input = validateReceipt(req.body);
     if (!input.ok) {
       res.status(400).json({ error: 'Invalid receipt', details: input.problems });

@@ -30,6 +30,8 @@ export interface PrinterBackend {
   resume(queueName: string): Promise<void>;
   clear(queueName: string): Promise<void>;
   sendRaw(queueName: string, data: Buffer, docName: string): Promise<void>;
+  /** The queue's driver / make-and-model, or null when unknown. */
+  driverName(queueName: string): Promise<string | null>;
 }
 
 let backend: PrinterBackend | null = null;
@@ -43,6 +45,16 @@ export function getBackend(): PrinterBackend {
         : (require('./cups-backend') as typeof import('./cups-backend')).cupsBackend;
   }
   return backend;
+}
+
+/** Drivers that only pass raw bytes through (what plug-and-play setup installs
+ *  for receipt printers) or generic ones a thermal printer can't render. */
+const NO_GRAPHICS_DRIVER = /generic|text only|raw|everywhere|driverless|airprint/i;
+
+/** True when this queue has the printer's own driver, which can print pages. */
+export async function hasGraphicsDriver(queueName: string): Promise<boolean> {
+  const driver = await getBackend().driverName(queueName).catch(() => null);
+  return Boolean(driver && !NO_GRAPHICS_DRIVER.test(driver));
 }
 
 export function queueNameFor(label: string): string {

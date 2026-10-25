@@ -5,6 +5,7 @@ import fs from 'node:fs/promises';
 import path from 'node:path';
 import type { DocumentPaperSize, PrinterProfile, ReceiptModel } from '../types';
 import { ensureQueueReady } from './availability';
+import { measureHtmlHeight } from './html-raster';
 import { printSandbox } from './print-sandbox';
 import { normalizeQr, qrSvg } from './qr';
 
@@ -98,10 +99,77 @@ export async function printHtml(profile: PrinterProfile, html: string, options: 
   );
 }
 
-function sendPdfToCups(queueName: string, pdf: Buffer, options: DocumentOptions): Promise<void> {
+export interface RollOptions {
+  docName: string;
+  copies?: number;
+  /** Width of the paper roll in mm (80 or 58). */
+  paperMm: number;
+  /** Width the page was designed for in mm (POS bills are laid out for 80mm). */
+  designMm: number;
+}
+
+/** Blank paper after the bill so the cutter clears the last line. */
+const ROLL_FEED_MM = 4;
+/** Longest bill printed in one go: 3 m of paper. */
+const MAX_ROLL_MM = 3000;
+
+/**
+ * Print an HTML bill on a receipt roll through the printer's own driver, as a
+ * browser's print dialog does: the shop's design (logo, fonts, layout) comes
+ * out sharp at the printer's full resolution. The page is exactly as long as
+ * the bill, so the driver neither cuts it short nor feeds blank paper.
+ */
+export async function printHtmlOnRoll(profile: PrinterProfile, html: string, options: RollOptions): Promise<void> {
+  const queueName = systemQueue(profile);
+  await ensureQueueReady(queueName);
+  const { paperMm } = options;
+  // An 80mm design on 58mm paper: scale it down to the paper's width.
+  const zoom = paperMm / options.designMm;
+  const fit = zoom < 0.999 ? `html { zoom: ${zoom.toFixed(4)}; }` : '';
+  const widthPx = Math.round((paperMm * 96) / 25.4);
+  const heightPx = await measureHtmlHeight(html, { width: widthPx, css: fit });
+  const heightMm = Math.min(MAX_ROLL_MM, Math.ceil((heightPx * 25.4) / 96) + ROLL_FEED_MM);
+  // Replaces any @page size in the bill with the measured one.
+  const pageCss = `@page { size: ${paperMm}mm ${heightMm}mm !important; margin: 0 !important; } html, body { margin: 0 !important; } ${fit}`;
+  const copies = options.copies ?? 1;
+
+  if (process.platform !== 'win32') {
+    const pdf = await withPage(html, async (win) => {
+      await win.webContents.insertCSS(pageCss);
+      return win.webContents.printToPDF({
+        pageSize: { width: paperMm / 25.4, height: heightMm / 25.4 },
+        margins: { top: 0, bottom: 0, left: 0, right: 0 },
+        printBackground: true,
+      });
+    });
+    await sendPdfToCups(queueName, pdf, { docName: options.docName, copies, media: `Custom.${paperMm}x${heightMm}mm` });
+    return;
+  }
+
+  await withPage(html, async (win) => {
+    await win.webContents.insertCSS(pageCss);
+    await new Promise<void>((resolve, reject) => {
+      win.webContents.print(
+        {
+          silent: true,
+          deviceName: queueName,
+          printBackground: true,
+          // Microns.
+          pageSize: { width: paperMm * 1000, height: heightMm * 1000 },
+          margins: { marginType: 'none' },
+          copies,
+        },
+        (success, reason) => (success ? resolve() : reject(new Error(`Printing failed (${reason})`))),
+      );
+    });
+  });
+}
+
+function sendPdfToCups(queueName: string, pdf: Buffer, options: DocumentOptions & { media?: string }): Promise<void> {
   return withTempFile('.pdf', pdf, (file) => {
     const args = ['-d', queueName, '-t', options.docName, '-n', String(options.copies ?? 1)];
-    if (options.paperSize) args.push('-o', `media=${options.paperSize}`);
+    const media = options.media ?? options.paperSize;
+    if (media) args.push('-o', `media=${media}`);
     if (options.landscape) args.push('-o', 'landscape');
     args.push(file);
     return new Promise<void>((resolve, reject) => {

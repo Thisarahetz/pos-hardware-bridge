@@ -17,8 +17,15 @@ export const MAX_RECEIPTLINE_LENGTH = 500_000;
 /** Characters per line used for previews and A4 printing (an 80mm roll). */
 const DEFAULT_CPL = 42;
 
-function commandFor(profile: PrinterProfile): 'escpos' | 'starsbcs' {
-  return profile.language === 'star' ? 'starsbcs' : 'escpos';
+/**
+ * 'generic' rather than 'escpos': plain ESC/POS draws QR codes and logos with
+ * Epson's newer GS 8 L / GS ( L graphics commands, which most non-Epson
+ * printers (Xprinter, Rongta, POS-80 clones…) don't know — they print the image
+ * bytes as a metre of garbage characters. 'generic' uses GS v 0, which every
+ * ESC/POS printer supports; text and layout commands are the same.
+ */
+function commandFor(profile: PrinterProfile): 'generic' | 'starsbcs' {
+  return profile.language === 'star' ? 'starsbcs' : 'generic';
 }
 
 export interface ReceiptLineOptions {
@@ -68,6 +75,9 @@ export async function printReceiptLine(doc: string, printerId?: string, options:
         command: commandFor(profile),
         // Text, logos, barcodes and QR codes: crisp black and white.
         gradient: false,
+        // Normal gap between lines, as in the preview. Without it ReceiptLine
+        // sets line spacing to 0 and the lines print squashed together.
+        spacing: true,
         // Feed and cut follow this printer's settings (cutter / extra paper).
         cutting: false,
       }),
