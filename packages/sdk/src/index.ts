@@ -17,3 +17,33 @@ export type {
   PrintResult,
   StatusLevel,
 } from './client.js';
+export {
+  DEFAULT_ROLES,
+  DEFAULT_STORAGE_KEY,
+  THIS_COMPUTER_URL,
+  bridgeFor,
+  connectToBridge,
+  defaultPrintSettings,
+  isPrintingConfigured,
+  isThisComputerUrl,
+  loadPrintSettings,
+  onPrintSettingsChange,
+  pairDevice,
+  printFor,
+  printInvoice,
+  printTestPageFor,
+  printerFor,
+  savePrintSettings,
+  summarizeStatus,
+  watchPrinterStatus,
+} from './pos.js';
+export type {
+  BridgeConnection,
+  PrintForOptions,
+  PrintOutcome,
+  PrintRoleConfig,
+  PrintSettings,
+  PrinterStatusSummary,
+  StorageOptions,
+  WatchStatusOptions,
+} from './pos.js';

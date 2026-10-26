@@ -5,12 +5,15 @@ computer*). Your POS can run on the same computer or on other devices.
 
 ## Download
 
-Get the latest installer from
-**[GitHub Releases](https://github.com/Thisarahetz/pos-hardware-bridge/releases/latest)**.
+[Download for Windows](https://github.com/Thisarahetz/pos-hardware-bridge/releases/latest/download/POS-Hardware-Bridge-Setup.exe){ .md-button .md-button--primary }
+[All releases](https://github.com/Thisarahetz/pos-hardware-bridge/releases/latest){ .md-button }
+
+The Windows button always downloads the newest installer. Other builds and
+release notes are on [GitHub Releases](https://github.com/Thisarahetz/pos-hardware-bridge/releases/latest).
 
 === "Windows 10/11"
 
-    1. Run `POS-Hardware-Bridge-Setup-<version>.exe`. It installs for the
+    1. Run `POS-Hardware-Bridge-Setup.exe`. It installs for the
        current user (no admin needed), adds desktop and Start-menu shortcuts,
        and starts the bridge.
     2. If Windows SmartScreen warns about an unknown publisher, click

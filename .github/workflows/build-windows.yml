@@ -1,18 +1,28 @@
 name: Build Windows installer
 
+# Branch pushes build a test installer (kept as a workflow artifact).
+# A GitHub Release is published when:
+#   - a version tag (v1.2.3) is pushed, or
+#   - the workflow is run by hand (Actions → Run workflow) on master.
+# The release version comes from package.json, so bump it before releasing.
 on:
   workflow_dispatch:
   push:
     branches: [master, 'feature/**']
     tags: ['v*']
 
-# A version tag publishes a GitHub Release, which installed bridges update from.
+# Publishing a release needs write access to the repo.
 permissions:
   contents: write
 
 jobs:
   windows:
     runs-on: windows-latest
+    env:
+      RELEASE: ${{ startsWith(github.ref, 'refs/tags/v') || (github.event_name == 'workflow_dispatch' && github.ref == 'refs/heads/master') }}
+      GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      # No code-signing certificate yet: build an unsigned installer.
+      CSC_IDENTITY_AUTO_DISCOVERY: 'false'
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
@@ -20,27 +30,50 @@ jobs:
           node-version: 22
           cache: npm
       - run: npm ci
+
+      - name: Read the version
+        id: version
+        shell: bash
+        run: echo "tag=v$(node -p "require('./package.json').version")" >> "$GITHUB_OUTPUT"
+
       - name: Check the tag matches package.json
         if: startsWith(github.ref, 'refs/tags/v')
         shell: bash
-        run: test "v$(node -p "require('./package.json').version")" = "${GITHUB_REF_NAME}"
+        run: test "${{ steps.version.outputs.tag }}" = "${GITHUB_REF_NAME}"
+
+      - name: Check this version isn't released yet
+        if: env.RELEASE == 'true'
+        shell: bash
+        run: |
+          if gh release view "${{ steps.version.outputs.tag }}" --json isDraft -q '.isDraft' 2>/dev/null | grep -q false; then
+            echo "::error::${{ steps.version.outputs.tag }} is already released. Bump \"version\" in package.json and run again."
+            exit 1
+          fi
+
       - name: Build installer
-        if: ${{ !startsWith(github.ref, 'refs/tags/v') }}
+        if: env.RELEASE != 'true'
         run: npm run dist:win -- --publish never
-        env:
-          # No code-signing certificate yet: build an unsigned installer.
-          CSC_IDENTITY_AUTO_DISCOVERY: 'false'
+
       - name: Build and publish release
-        if: startsWith(github.ref, 'refs/tags/v')
+        if: env.RELEASE == 'true'
         run: npm run release:win
-        env:
-          CSC_IDENTITY_AUTO_DISCOVERY: 'false'
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      # A copy with no version in its name, so the docs can link to
+      # releases/latest/download/POS-Hardware-Bridge-Setup.exe.
+      - name: Attach the latest-download installer
+        if: env.RELEASE == 'true'
+        shell: bash
+        run: |
+          cp release/POS-Hardware-Bridge-Setup-*.exe release/POS-Hardware-Bridge-Setup.exe
+          gh release upload "${{ steps.version.outputs.tag }}" release/POS-Hardware-Bridge-Setup.exe --clobber
+          gh release edit "${{ steps.version.outputs.tag }}" --draft=false --latest
+
       - uses: actions/upload-artifact@v4
         with:
           name: POS-Hardware-Bridge-Setup
-          path: release/*.exe
+          path: release/POS-Hardware-Bridge-Setup-*.exe
           if-no-files-found: error
+
       - name: Show the update files the release carries
         shell: bash
         run: ls -la release/*.yml release/win-unpacked/resources/app-update.yml 2>/dev/null || echo "no update files (branch build)"

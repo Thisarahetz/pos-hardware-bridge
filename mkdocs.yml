@@ -85,6 +85,7 @@ nav:
       - Your first print: getting-started/first-print.md
   - Guides:
       - Printer setup in your POS: guides/pos-setup.md
+      - React printer widget: guides/react-widget.md
       - Receipts, line by line: guides/receipts.md
       - Printer settings: guides/printers.md
       - A4 invoices & HTML pages: guides/documents.md

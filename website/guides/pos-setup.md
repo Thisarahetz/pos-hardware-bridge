@@ -5,6 +5,12 @@ the POS to the bridge, picks which printer gets receipts, kitchen tickets and
 invoices, and prints a test page. No code changes are needed when the shop
 adds or swaps printers.
 
+!!! tip "Using React?"
+    The SDK has this page ready-made: `<PrinterSettings />` and a header
+    `<PrinterStatusBadge />` from `pos-hardware-bridge/react`. See
+    [React printer widget](react-widget.md). This guide explains how it works,
+    for other frameworks or your own UI.
+
 It comes as two files you can copy into your app:
 
 | File | What it is |

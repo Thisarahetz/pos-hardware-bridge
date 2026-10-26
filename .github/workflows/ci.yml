@@ -23,6 +23,9 @@ jobs:
         run: npm run build
       - name: Receipt layout copies are identical
         run: cmp src/main/printer/receipt-layout.ts packages/sdk/src/layout.ts
+      - name: Install the SDK's dev dependencies (React for the widget)
+        run: npm ci
+        working-directory: packages/sdk
       - name: Test the SDK
         run: npm test
         working-directory: packages/sdk

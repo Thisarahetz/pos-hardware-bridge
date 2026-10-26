@@ -1,7 +1,7 @@
 {
   "name": "pos-hardware-bridge",
-  "version": "1.1.0",
-  "description": "Print sharp receipts from any POS: build receipts line by line and send them to POS Hardware Bridge (thermal, kitchen and A4 printers).",
+  "version": "1.2.0",
+  "description": "Print sharp receipts from any POS: build receipts line by line, send them to POS Hardware Bridge (thermal, kitchen and A4 printers), and drop in a React printer-settings widget.",
   "license": "MIT",
   "type": "module",
   "main": "./dist/cjs/index.js",
@@ -12,6 +12,11 @@
       "types": "./dist/esm/index.d.ts",
       "import": "./dist/esm/index.js",
       "require": "./dist/cjs/index.js"
+    },
+    "./react": {
+      "types": "./dist/esm/react/index.d.ts",
+      "import": "./dist/esm/react/index.js",
+      "require": "./dist/cjs/react/index.js"
     }
   },
   "files": [
@@ -36,7 +41,8 @@
     "star",
     "receiptline",
     "electron",
-    "print"
+    "print",
+    "react"
   ],
   "repository": {
     "type": "git",
@@ -44,10 +50,22 @@
     "directory": "packages/sdk"
   },
   "homepage": "https://thisarahetz.github.io/pos-hardware-bridge/sdk/",
-  "devDependencies": {
-    "typescript": "^5.9.3"
-  },
   "bugs": {
     "url": "https://github.com/Thisarahetz/pos-hardware-bridge/issues"
+  },
+  "peerDependencies": {
+    "react": ">=17"
+  },
+  "peerDependenciesMeta": {
+    "react": {
+      "optional": true
+    }
+  },
+  "devDependencies": {
+    "@types/react": "^19.3.0",
+    "@types/react-dom": "^19.3.0",
+    "react": "^19.3.1",
+    "react-dom": "^19.3.1",
+    "typescript": "^5.9.3"
   }
 }

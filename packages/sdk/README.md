@@ -34,7 +34,8 @@ await bridge.printReceipt(bill);                        // default receipt print
 await bridge.printReceipt(bill, { printer: 'kitchen' }); // a named printer
 ```
 
-No dependencies, typed, works with `import` and `require`.
+No dependencies, typed, works with `import` and `require`. React apps also get a
+ready-made printer settings widget from `pos-hardware-bridge/react`.
 
 ---
 
@@ -200,6 +201,27 @@ on your server, pair the bridge with it once, and queue the same receipt
 
 Full API reference: [openapi.yaml](https://github.com/Thisarahetz/pos-hardware-bridge/blob/master/docs/openapi.yaml),
 or `http://127.0.0.1:9191/docs` on any computer running the bridge.
+
+## React printer widget
+
+A ready-made **Printers** settings page and a status badge for your POS header.
+They save the settings on the device, so your code only prints by role:
+
+```tsx
+import { PrinterSettings, PrinterStatusBadge } from 'pos-hardware-bridge/react';
+import { printFor } from 'pos-hardware-bridge';
+
+<PrinterSettings />                                  // Settings → Printers
+<PrinterStatusBadge onClick={openPrinterSettings} /> // 'Printers ready', 'Kitchen: Out of paper'
+
+const result = await printFor('receipt', bill);     // never throws
+if (!result.ok && !result.skipped) showReprint(result.message);
+```
+
+React 17+ (optional peer dependency). Custom roles, props, hooks
+(`usePrintSettings`, `usePrinterStatus`) and styling:
+[React printer widget guide](https://thisarahetz.github.io/pos-hardware-bridge/guides/react-widget/).
+
 
 ## License
 

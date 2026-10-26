@@ -6,6 +6,14 @@ All notable changes to POS Hardware Bridge. Versions follow
 ## Unreleased
 
 ### Added
+- **SDK 1.2.0: React printer widget** (`pos-hardware-bridge/react`):
+  `<PrinterSettings />` for the POS settings page, `<PrinterStatusBadge />`
+  for the header, and `usePrintSettings` / `usePrinterStatus` hooks. The main
+  package gains the same logic with no UI: `printFor(role, receipt)`,
+  `loadPrintSettings()`, `connectToBridge()`, `pairDevice()`,
+  `watchPrinterStatus()`. Docs: *React printer widget* guide.
+- Running the Windows build by hand on master publishes a GitHub Release, with
+  a `POS-Hardware-Bridge-Setup.exe` that the install page links to directly.
 - **Line-by-line receipts** — `POST /print/receipt` with `{ "blocks": [...] }`
   (`text`, `row`, `rule`, `qr`, `feed`), printed with the printer's own
   commands and fonts and wrapped to the paper width. Print-station jobs accept
