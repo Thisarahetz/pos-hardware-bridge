@@ -38,12 +38,12 @@ Auto-start and automatic updates are off when running from source.
 ### Docs site
 
 The docs at https://thisarahetz.github.io/pos-hardware-bridge/ are built from
-`website/` with [MkDocs Material](https://squidfunk.github.io/mkdocs-material/):
+`website/` with [Zensical](https://zensical.org/):
 
 ```bash
 python3 -m venv .venv && . .venv/bin/activate
 pip install -r website/requirements.txt
-mkdocs serve           # http://127.0.0.1:8000, reloads as you edit
+zensical serve         # http://127.0.0.1:8000, reloads as you edit
 ```
 
 The API reference (`docs/openapi.yaml`, `docs/print-station.openapi.yaml`) is

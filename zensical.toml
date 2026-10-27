@@ -1,0 +1,106 @@
+[project]
+site_name = "POS Hardware Bridge"
+site_description = "Print receipts, kitchen tickets and A4 invoices from any POS on any thermal printer — a free, open-source tray app with a local HTTP API."
+site_url = "https://thisarahetz.github.io/pos-hardware-bridge/"
+site_author = "Thisara Hettikankanam"
+copyright = "MIT License · Copyright &copy; 2026 Thisara Hettikankanam"
+repo_url = "https://github.com/Thisarahetz/pos-hardware-bridge"
+repo_name = "Thisarahetz/pos-hardware-bridge"
+edit_uri = "edit/master/website/"
+docs_dir = "website"
+exclude_docs = "requirements.txt"
+
+nav = [
+  { "Home" = "index.md" },
+  { "Get started" = [
+    { "Install" = "getting-started/install.md" },
+    { "Set up printers" = "getting-started/setup.md" },
+    { "Your first print" = "getting-started/first-print.md" },
+  ] },
+  { "Guides" = [
+    { "Printer setup in your POS" = "guides/pos-setup.md" },
+    { "React printer widget" = "guides/react-widget.md" },
+    { "Receipts, line by line" = "guides/receipts.md" },
+    { "Printer settings" = "guides/printers.md" },
+    { "A4 invoices & HTML pages" = "guides/documents.md" },
+    { "Phones & tablets" = "guides/devices.md" },
+    { "Print station (POS backends)" = "guides/print-station.md" },
+    { "Card payments" = "guides/payments.md" },
+    { "Best practices" = "guides/best-practices.md" },
+  ] },
+  { "SDK" = "sdk.md" },
+  { "API" = [
+    { "Overview" = "api.md" },
+    { "Full reference" = "reference/index.html" },
+  ] },
+  { "Help" = [
+    { "Troubleshooting" = "troubleshooting.md" },
+    { "Security" = "security.md" },
+    { "Contributing" = "contributing.md" },
+  ] },
+]
+
+[project.theme]
+language = "en"
+logo = "assets/icon.png"
+favicon = "assets/icon.png"
+features = [
+  "content.action.edit",
+  "content.code.annotate",
+  "content.code.copy",
+  "content.tabs.link",
+  "navigation.footer",
+  "navigation.indexes",
+  "navigation.instant",
+  "navigation.sections",
+  "navigation.tabs",
+  "navigation.top",
+  "search.highlight",
+  "toc.follow",
+]
+
+[project.theme.icon]
+repo = "fontawesome/brands/github"
+edit = "material/pencil"
+
+[[project.theme.palette]]
+media = "(prefers-color-scheme: light)"
+scheme = "default"
+primary = "blue"
+accent = "blue"
+toggle.icon = "lucide/moon"
+toggle.name = "Dark mode"
+
+[[project.theme.palette]]
+media = "(prefers-color-scheme: dark)"
+scheme = "slate"
+primary = "blue"
+accent = "blue"
+toggle.icon = "lucide/sun"
+toggle.name = "Light mode"
+
+[[project.extra.social]]
+icon = "fontawesome/brands/github"
+link = "https://github.com/Thisarahetz/pos-hardware-bridge"
+
+[[project.extra.social]]
+icon = "fontawesome/brands/npm"
+link = "https://www.npmjs.com/package/pos-hardware-bridge"
+
+[project.markdown_extensions]
+admonition = {}
+attr_list = {}
+md_in_html = {}
+tables = {}
+toc.permalink = true
+pymdownx.details = {}
+pymdownx.highlight.anchor_linenums = true
+pymdownx.inlinehilite = {}
+pymdownx.snippets.base_path = ["."]
+pymdownx.snippets.check_paths = true
+pymdownx.superfences.custom_fences = [
+  { name = "mermaid", class = "mermaid", format = "pymdownx.superfences.fence_code_format" },
+]
+pymdownx.tabbed.alternate_style = true
+pymdownx.emoji.emoji_generator = "zensical.extensions.emoji.to_svg"
+pymdownx.emoji.emoji_index = "zensical.extensions.emoji.twemoji"

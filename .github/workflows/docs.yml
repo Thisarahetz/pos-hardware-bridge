@@ -4,7 +4,7 @@ name: Docs
 on:
   push:
     branches: [master]
-    paths: ['website/**', 'docs/**', 'mkdocs.yml', 'packages/sdk/README.md', 'CONTRIBUTING.md', '.github/workflows/docs.yml']
+    paths: ['website/**', 'docs/**', 'zensical.toml', 'packages/sdk/README.md', 'CONTRIBUTING.md', '.github/workflows/docs.yml']
   workflow_dispatch:
 
 permissions:
@@ -31,7 +31,7 @@ jobs:
         run: |
           # The API reference page and specs, served at /reference/
           mkdir -p website/reference && cp docs/index.html docs/*.yaml website/reference/
-          mkdocs build --strict
+          zensical build --clean
       - uses: actions/upload-pages-artifact@v3
         with:
           path: site

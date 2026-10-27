@@ -40,7 +40,7 @@ jobs:
           cache: pip
           cache-dependency-path: website/requirements.txt
       - run: pip install -r website/requirements.txt
-      - name: Build the docs (fails on broken links)
+      - name: Build the docs
         run: |
           mkdir -p website/reference && cp docs/index.html docs/*.yaml website/reference/
-          mkdocs build --strict
+          zensical build --clean
