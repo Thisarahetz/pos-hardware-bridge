@@ -14,6 +14,10 @@ All notable changes to POS Hardware Bridge. Versions follow
   `watchPrinterStatus()`. Docs: *React printer widget* guide.
 - Running the Windows build by hand on master publishes a GitHub Release, with
   a `POS-Hardware-Bridge-Setup.exe` that the install page links to directly.
+- **Logos on receipts** — a new `image` line (`POST /print/receipt` and print-station
+  jobs) prints a PNG or JPEG logo, centred and scaled to the paper in black and
+  white. SDK: `ReceiptBuilder.image(base64, size?)`; `layoutReceipt` returns
+  `image` items for previews.
 - **Line-by-line receipts** — `POST /print/receipt` with `{ "blocks": [...] }`
   (`text`, `row`, `rule`, `qr`, `feed`), printed with the printer's own
   commands and fonts and wrapped to the paper width. Print-station jobs accept

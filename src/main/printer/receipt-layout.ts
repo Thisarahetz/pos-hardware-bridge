@@ -6,7 +6,7 @@
  *   - packages/sdk/src/layout.ts            the `pos-hardware-bridge` npm package
  * It has no imports, so it can be copied into any TypeScript project as is.
  *
- * A receipt is a list of blocks (text, row, rule, qr, feed). `layoutReceipt`
+ * A receipt is a list of blocks (text, row, rule, qr, image, feed). `layoutReceipt`
  * turns them into lines exactly `width` characters wide (32 on 58mm paper,
  * 42 or 48 on 80mm), wrapping text at word boundaries.
  */
@@ -34,8 +34,13 @@ export type ReceiptBlock =
   | { type: 'rule'; style?: 'single' | 'double' }
   /** A QR code, centred, with an optional caption under it. */
   | { type: 'qr'; data: string; label?: string; size?: 'small' | 'medium' | 'large' }
+  /** A logo or picture (PNG or JPEG as base64), centred and scaled to the paper. */
+  | { type: 'image'; data: string; size?: ReceiptImageSize }
   /** Blank lines (1–10). */
   | { type: 'feed'; lines?: number };
+
+/** Share of the paper width a picture fills: small 40%, medium 60%, large 80%, full 100%. */
+export type ReceiptImageSize = 'small' | 'medium' | 'large' | 'full';
 
 /** A receipt as a list of lines, printed top to bottom. */
 export interface ReceiptDocument {
@@ -55,6 +60,7 @@ export type ReceiptLayoutItem =
       size: ReceiptTextSize;
     }
   | { kind: 'qr'; data: string; label?: string; size: 'small' | 'medium' | 'large' }
+  | { kind: 'image'; data: string; size: ReceiptImageSize }
   | { kind: 'feed'; lines: number };
 
 /** How many normal characters wide / lines tall each text size is. */
@@ -119,6 +125,10 @@ export function layoutReceipt(blocks: ReceiptBlock[], width: number): ReceiptLay
     }
     if (b.type === 'qr') {
       out.push({ kind: 'qr', data: b.data, label: b.label ? cleanReceiptText(b.label) : undefined, size: b.size ?? 'medium' });
+      continue;
+    }
+    if (b.type === 'image') {
+      out.push({ kind: 'image', data: b.data, size: b.size ?? 'medium' });
       continue;
     }
     if (b.type === 'feed') {

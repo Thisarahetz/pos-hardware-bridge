@@ -282,12 +282,12 @@ components:
           type: object
           nullable: true
           required: [blocks]
-          description: 'The receipt line by line: the same `blocks` as `POST /print/receipt` in the bridge API (`text`, `row`, `rule`, `qr`, `feed`; max 600).'
+          description: 'The receipt line by line: the same `blocks` as `POST /print/receipt` in the bridge API (`text`, `row`, `rule`, `qr`, `image`, `feed`; max 600).'
           properties:
             blocks:
               type: array
               maxItems: 600
-              items: { type: object, required: [type], properties: { type: { type: string, enum: [text, row, rule, qr, feed] } }, additionalProperties: true }
+              items: { type: object, required: [type], properties: { type: { type: string, enum: [text, row, rule, qr, image, feed] } }, additionalProperties: true }
         receiptline: { type: string, nullable: true, description: 'A ReceiptLine document (see the bridge API docs).' }
         html: { type: string, nullable: true, description: 'A complete HTML page, for A4/A5 printers (a thermal printer prints it through its driver or as an image). Scripts are off and nothing is downloaded.' }
         format: { type: string, nullable: true, enum: ['80mm', '58mm', a4, a5, null], description: 'For `html`: the paper the page was laid out for.' }

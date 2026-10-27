@@ -71,3 +71,9 @@ test('printReceipt sends the blocks to POST /print/receipt', async () => {
     globalThis.fetch = realFetch;
   }
 });
+
+test('a logo is a block and lays out as an image', () => {
+  const doc = new ReceiptBuilder().image('iVBORw0KGgo=', 'large').center('Shop').build();
+  assert.deepEqual(doc.blocks[0], { type: 'image', data: 'iVBORw0KGgo=', size: 'large' });
+  assert.deepEqual(layoutReceipt(doc.blocks, 42)[0], { kind: 'image', data: 'iVBORw0KGgo=', size: 'large' });
+});

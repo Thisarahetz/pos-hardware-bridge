@@ -86,6 +86,16 @@ export class ReceiptBuilder {
     return this;
   }
 
+  /**
+   * A centred logo: a PNG or JPEG as base64 (a `data:` URL works too). The bridge
+   * scales it to the paper and prints it black and white, so use a high-contrast
+   * logo. `size` is the share of the paper width: small 40%, medium 60%, large 80%, full 100%.
+   */
+  image(data: string, size: 'small' | 'medium' | 'large' | 'full' = 'medium'): this {
+    this.blocks.push({ type: 'image', data, size });
+    return this;
+  }
+
   /** Blank lines (1–10). */
   feed(lines = 1): this {
     this.blocks.push({ type: 'feed', lines });

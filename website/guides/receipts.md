@@ -26,6 +26,7 @@ Content-Type: application/json
 | `row` | `left`, `right`, `bold`, `size`, `indent` | `Subtotal          40.00` — `right` stays on the right; a long `left` wraps beside it |
 | `rule` | `style`: `single` or `double` | `--------` or `========` across the paper |
 | `qr` | `data`, `label`, `size` (`small`/`medium`/`large`) | A centred QR code with a caption under it |
+| `image` | `data` (base64 PNG/JPEG), `size` (`small`/`medium`/`large`/`full`) | A centred logo, printed in black and white |
 | `feed` | `lines` (1–10) | Blank lines |
 
 - **`size`**: `normal`, `wide` (double width), `tall` (double height) or
@@ -210,6 +211,20 @@ imports and is short enough to port.
 - **Keep `wide`/`large` text for short headings** — 16 characters on 58mm.
 - **QR codes: short links** (max 1,000 characters). Long content makes dense
   codes that are hard to scan.
+- **Logos: `image` blocks.** Send a PNG or JPEG as base64 (a `data:` URL also
+  works, max about 300 KB). The bridge scales it to a share of the paper width
+  (`small` 40%, `medium` 60%, `large` 80%, `full` 100%; 384 dots on 58mm, 576
+  on 80mm) and prints it black and white: transparent areas become white and
+  grey is cut at 50%. Use a high-contrast logo, already close to the printed
+  size, and encode it once rather than on every sale.
+
+  ```json
+  { "type": "image", "data": "iVBORw0KGgo…", "size": "medium" }
+  ```
+
+  ```js
+  new ReceiptBuilder().image(logoBase64, 'medium').center('MY SHOP', { bold: true })
+  ```
 - **Leave the cut and final feed to the bridge.** Each printer's settings
   decide full cut, partial cut or tear-off.
 

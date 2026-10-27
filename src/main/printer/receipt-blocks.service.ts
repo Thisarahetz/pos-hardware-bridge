@@ -4,6 +4,7 @@ import { layoutReceipt, type ReceiptDocument, type ReceiptTextSize } from './rec
 import { printHtml } from './document.service';
 import { buildDriver, finishReceipt, friendlyError, printQr, sendThermal, type Driver } from './printer.service';
 import { normalizeQr, qrSvg } from './qr';
+import { logoPngForReceipt } from './logo';
 
 /**
  * Receipts sent line by line (`{ "blocks": [...] }`): each line is printed with
@@ -28,6 +29,12 @@ export async function renderThermal(driver: Driver, profile: PrinterProfile, doc
     }
     if (o.kind === 'qr') {
       await printQr(driver, profile, normalizeQr({ data: o.data, label: o.label, size: o.size }));
+      continue;
+    }
+    if (o.kind === 'image') {
+      driver.alignCenter();
+      await driver.printImageBuffer(logoPngForReceipt(o.data, o.size, profile.paperWidthChars));
+      driver.alignLeft();
       continue;
     }
     if (o.align === 'center') driver.alignCenter();
@@ -56,7 +63,10 @@ async function receiptPage(doc: ReceiptDocument, width: number): Promise<string>
   const parts: string[] = [];
   for (const o of layoutReceipt(doc.blocks, width)) {
     if (o.kind === 'feed') parts.push('<div>&nbsp;</div>'.repeat(o.lines));
-    else if (o.kind === 'qr') {
+    else if (o.kind === 'image') {
+      const src = o.data.startsWith('data:') ? o.data : `data:image/png;base64,${o.data}`;
+      parts.push(`<div class="img ${o.size}"><img src="${escapeHtml(src)}"></div>`);
+    } else if (o.kind === 'qr') {
       parts.push(`<div class="qr ${o.size}">${await qrSvg(o.data)}${o.label ? `<div>${escapeHtml(o.label)}</div>` : ''}</div>`);
     } else {
       const cls = [o.bold && 'b', o.underline && 'u', o.invert && 'i', `s-${o.size}`].filter(Boolean).join(' ');
@@ -69,6 +79,8 @@ async function receiptPage(doc: ReceiptDocument, width: number): Promise<string>
     .r { width: ${width}ch; margin: 0 auto; font: 10pt/1.35 "Courier New", Courier, monospace; white-space: pre; color: #000; }
     .b { font-weight: 700; } .u { text-decoration: underline; } .i { background: #000; color: #fff; display: table; margin: 0 auto; }
     .s-wide { transform: scaleX(2); transform-origin: left; width: 50%; } .s-tall { font-size: 15pt; } .s-large { font-size: 20pt; }
+    .img { text-align: center; margin: 2mm 0; } .img img { max-width: 100%; }
+    .img.small img { width: 24mm; } .img.medium img { width: 36mm; } .img.large img { width: 48mm; } .img.full img { width: 100%; }
     .qr { text-align: center; margin: 3mm 0; white-space: normal; } .qr svg { display: block; margin: 0 auto 1mm; }
     .qr.small svg { width: 22mm; } .qr.medium svg { width: 30mm; } .qr.large svg { width: 40mm; }
   </style></head><body><div class="r">${parts.join('')}</div></body></html>`;

@@ -192,7 +192,8 @@ export const validateReceiptLine = (body: unknown) =>
   });
 
 export const MAX_RECEIPT_BLOCKS = 600;
-const BLOCK_TYPES = ['text', 'row', 'rule', 'qr', 'feed'];
+const MAX_IMAGE_BASE64 = 400_000;
+const BLOCK_TYPES = ['text', 'row', 'rule', 'qr', 'image', 'feed'];
 const TEXT_SIZES = ['normal', 'wide', 'tall', 'large'];
 
 /** Problems with a line-by-line receipt's "blocks"; empty means it's valid. */
@@ -232,6 +233,12 @@ export function checkBlocks(blocks: unknown): string[] {
         if (!isText(b.data) || (b.data as string).length > 1000) problems.push(`${at}.data must be the QR content (max 1000 characters; use a short link)`);
         if (b.label !== undefined && !isStr(b.label, 200)) problems.push(`${at}.label must be a string`);
         if (b.size !== undefined && !['small', 'medium', 'large'].includes(b.size as string)) problems.push(`${at}.size must be small, medium or large`);
+        break;
+      case 'image':
+        if (!isStr(b.data, MAX_IMAGE_BASE64) || !/^(data:image\/(png|jpe?g);base64,)?[A-Za-z0-9+/=\s]+$/.test(b.data as string)) {
+          problems.push(`${at}.data must be a PNG or JPEG as base64 (max ${Math.round(MAX_IMAGE_BASE64 / 1000)} KB; shrink the logo)`);
+        }
+        if (b.size !== undefined && !['small', 'medium', 'large', 'full'].includes(b.size as string)) problems.push(`${at}.size must be small, medium, large or full`);
         break;
       case 'feed':
         if (b.lines !== undefined && !(Number.isInteger(b.lines) && (b.lines as number) >= 1 && (b.lines as number) <= 10)) {

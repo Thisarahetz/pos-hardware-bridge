@@ -41,7 +41,7 @@ ready-made printer settings widget from `pos-hardware-bridge/react`.
 
 ## Receipts, line by line
 
-A receipt is a list of lines (`blocks`): `text`, `row`, `rule`, `qr` and
+A receipt is a list of lines (`blocks`): `text`, `row`, `rule`, `qr`, `image` and
 `feed`. The bridge prints each line with the **printer's own commands and
 fonts** — nothing is turned into HTML, a PDF or a picture — and wraps text to
 the paper: 32 characters on 58mm, 42 or 48 on 80mm. The same receipt prints
@@ -57,6 +57,7 @@ correctly on every paper width.
 | `banner(text)` | White-on-black label, e.g. `PAID`, `REPRINT` |
 | `rule(style?)` | `-----` (`single`) or `=====` (`double`) across the paper |
 | `qr(data, label?, size?)` | A centred QR code (`small`/`medium`/`large`) |
+| `image(base64, size?)` | A centred logo, PNG or JPEG as base64 (`small`/`medium`/`large`/`full`), printed black and white |
 | `feed(lines?)` | Blank lines |
 | `build()` | `{ blocks }` — send it with `printReceipt()`, or in a print job |
 
@@ -75,6 +76,7 @@ const columns = (await bridge.printers()).find((p) => p.id === 'receipt')?.paper
 for (const line of layoutReceipt(bill.build().blocks, columns)) {
   if (line.kind === 'line') console.log(line.text);   // also: align, bold, size, invert
   if (line.kind === 'qr') console.log(`[QR ${line.data}]`);
+  if (line.kind === 'image') console.log('[LOGO]');   // line.data is the base64 picture
 }
 ```
 

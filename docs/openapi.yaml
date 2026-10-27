@@ -216,7 +216,7 @@ paths:
       summary: Print a receipt line by line (recommended)
       description: |
         **Line by line (recommended):** send `blocks` — `text`, `row`, `rule`,
-        `qr` and `feed` lines. The bridge prints each line with the printer's
+        `qr`, `image` (a logo) and `feed` lines. The bridge prints each line with the printer's
         own commands and fonts (no HTML, PDF or picture) and wraps text to the
         paper: 32 characters on 58mm, 42 or 48 on 80mm. Up to 600 lines.
         The bridge's layout code ships in the SDK (`layoutReceipt`) so a POS
@@ -544,6 +544,13 @@ components:
             data: { type: string, maxLength: 1000, description: Keep it short (a link). }
             label: { type: string, maxLength: 200, description: Caption under the code. }
             size: { type: string, enum: [small, medium, large], default: medium }
+        - type: object
+          title: image
+          required: [type, data]
+          properties:
+            type: { type: string, enum: [image] }
+            data: { type: string, description: 'A logo as PNG or JPEG in base64 (a data: URL also works). Printed centred in black and white. Max ~300 KB.' }
+            size: { type: string, enum: [small, medium, large, full], default: medium, description: 'Share of the paper width: 40%, 60%, 80%, 100%.' }
         - type: object
           title: feed
           required: [type]
