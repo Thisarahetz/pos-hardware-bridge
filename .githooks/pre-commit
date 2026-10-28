@@ -1,0 +1,19 @@
+#!/bin/sh
+set -e
+
+# Skip during merges or rebases
+if [ -f .git/MERGE_HEAD ] || [ -d .git/rebase-merge ] || [ -d .git/rebase-apply ]; then
+  exit 0
+fi
+
+echo "🔍 Running pre-commit tests..."
+
+if [ "$SKIP_TESTS" != "1" ] && [ "$SKIP_TESTS" != "true" ]; then
+  npm test
+  echo "✔ All tests passed successfully."
+else
+  echo "⚠️  SKIP_TESTS is set, skipping tests."
+fi
+
+echo "📦 Checking and auto-incrementing version..."
+node scripts/bump-version.js

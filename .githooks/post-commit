@@ -1,0 +1,15 @@
+#!/bin/sh
+
+# Skip tag creation if requested
+if [ "$SKIP_TAG" = "1" ] || [ "$SKIP_TAG" = "true" ]; then
+  exit 0
+fi
+
+VERSION=$(node -p "require('./package.json').version" 2>/dev/null)
+if [ -n "$VERSION" ]; then
+  TAG="v$VERSION"
+  if ! git rev-parse "$TAG" >/dev/null 2>&1; then
+    git tag "$TAG"
+    echo "🏷️  Created git tag: $TAG"
+  fi
+fi

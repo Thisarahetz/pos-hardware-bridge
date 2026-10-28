@@ -1,6 +1,6 @@
 {
   "name": "pos-hardware-bridge",
-  "version": "1.0.0",
+  "version": "1.0.1",
   "private": true,
   "description": "Print receipts, kitchen tickets and A4 invoices from any POS — web, desktop or mobile — on any ESC/POS or Star thermal printer. A tray app with a local HTTP API, SDK and print-station protocol.",
   "license": "MIT",
@@ -26,6 +26,9 @@
   ],
   "main": "dist/main/index.js",
   "scripts": {
+    "prepare": "git config core.hooksPath .githooks || true",
+    "test": "npm run build && node scripts/check-layout-sync.js && npm --prefix packages/sdk test",
+    "version:bump": "node scripts/bump-version.js",
     "build": "tsc -p tsconfig.json",
     "dev": "tsc -p tsconfig.json -w",
     "start": "electron .",
