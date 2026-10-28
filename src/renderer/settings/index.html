@@ -16,6 +16,24 @@
   </header>
   <div id="apiError" class="banner" hidden></div>
 
+  <!-- Update banner -->
+  <div id="updateBanner" class="banner update-banner" hidden>
+    <div class="update-banner-head">
+      <span class="update-banner-icon" id="updateBannerIcon">🚀</span>
+      <div class="update-banner-body">
+        <div class="update-banner-title" id="updateBannerTitle">New version available</div>
+        <div class="muted small" id="updateBannerDesc">A new update for POS Hardware Bridge is available.</div>
+      </div>
+      <div class="update-banner-actions">
+        <button id="updateBannerAction" class="primary small-btn">Update Now</button>
+        <button id="updateBannerDismiss" class="ghost small-btn">Later</button>
+      </div>
+    </div>
+    <div class="progress-bar-wrap" id="updateProgressWrap" hidden>
+      <div class="progress-bar" id="updateProgressBar" style="width: 0%"></div>
+    </div>
+  </div>
+
   <!-- Configured printers -->
   <section class="card">
     <div class="card-head">
@@ -221,8 +239,21 @@
 
   <!-- This computer -->
   <section class="card">
-    <h3>This computer</h3>
+    <div class="card-head">
+      <h3>This computer</h3>
+      <span class="muted small" id="appVersionBadge"></span>
+    </div>
     <div class="option">
+      <div>
+        <div class="option-label">Software updates</div>
+        <div class="muted small" id="updateStatusDetail">Checking for updates…</div>
+      </div>
+      <div class="row tight">
+        <button id="btnCheckUpdates" class="ghost">Check for updates</button>
+        <button id="btnUpdateAction" class="primary" hidden>Update now</button>
+      </div>
+    </div>
+    <div class="option spaced">
       <div>
         <div class="option-label">Start automatically</div>
         <div class="muted small">Opens quietly in the tray when the computer starts, so receipts always print.</div>

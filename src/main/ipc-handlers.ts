@@ -21,6 +21,13 @@ import { charge, listSerialPorts, resetTerminalConnection } from './terminal/ter
 import { getStatus, refreshStatus } from './status-monitor';
 import { applyLaunchAtLogin } from './autostart';
 import { bridgeName, cancelPairing, getLanState, removeDevice, renameDevice, startPairing } from './lan/devices';
+import {
+  checkForUpdates,
+  getUpdateState,
+  installUpdateNow,
+  simulateUpdate,
+  startDownloadUpdate,
+} from './updater';
 
 type Result<T = undefined> = { ok: true; value?: T } | { ok: false; error: string };
 
@@ -136,4 +143,17 @@ export function registerIpcHandlers(): void {
   ipcMain.handle('test:terminal-charge', () =>
     attempt(() => charge({ amountMinorUnits: 100, currency: 'USD', reference: `test-${Date.now()}` })),
   );
+
+  ipcMain.handle('updater:get-state', () => getUpdateState());
+  ipcMain.handle('updater:check', () => attempt(() => checkForUpdates(true)));
+  ipcMain.handle('updater:download', () => attempt(() => startDownloadUpdate()));
+  ipcMain.handle('updater:install', () => {
+    installUpdateNow();
+    return { ok: true };
+  });
+  ipcMain.handle('updater:simulate', (_evt, version?: string) => {
+    simulateUpdate(version);
+    return { ok: true };
+  });
+  ipcMain.handle('app:get-version', () => app.getVersion());
 }

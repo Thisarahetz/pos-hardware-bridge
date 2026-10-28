@@ -786,6 +786,131 @@ api.onCloud(renderCloud);
 
 $('openDocs').addEventListener('click', () => api.openDocs());
 
+// ---------- software updates ----------
+
+let currentUpdateState = { state: 'idle' };
+let bannerDismissed = false;
+
+function renderUpdateState(u) {
+  if (!u) return;
+  currentUpdateState = u;
+  const banner = $('updateBanner');
+  const title = $('updateBannerTitle');
+  const desc = $('updateBannerDesc');
+  const actionBtn = $('updateBannerAction');
+  const dismissBtn = $('updateBannerDismiss');
+  const progressWrap = $('updateProgressWrap');
+  const progressBar = $('updateProgressBar');
+  const statusDetail = $('updateStatusDetail');
+  const btnCheckUpdates = $('btnCheckUpdates');
+  const btnUpdateAction = $('btnUpdateAction');
+
+  if (u.state === 'checking') {
+    statusDetail.textContent = 'Checking for updates…';
+    btnCheckUpdates.disabled = true;
+    btnCheckUpdates.textContent = 'Checking…';
+    btnUpdateAction.hidden = true;
+  } else if (u.state === 'up-to-date') {
+    statusDetail.textContent = 'POS Hardware Bridge is up to date.';
+    btnCheckUpdates.disabled = false;
+    btnCheckUpdates.textContent = 'Check for updates';
+    btnUpdateAction.hidden = true;
+    if (currentUpdateState.state !== 'downloading' && currentUpdateState.state !== 'available') {
+      banner.hidden = true;
+    }
+  } else if (u.state === 'available') {
+    statusDetail.textContent = `Version ${u.version} is available.`;
+    btnCheckUpdates.disabled = false;
+    btnCheckUpdates.textContent = 'Check for updates';
+    btnUpdateAction.hidden = false;
+    btnUpdateAction.disabled = false;
+    btnUpdateAction.textContent = `Update to v${u.version}`;
+    btnUpdateAction.onclick = () => void api.startDownloadUpdate();
+
+    if (!bannerDismissed) {
+      banner.hidden = false;
+      title.textContent = `Version ${u.version} is available`;
+      desc.textContent = u.releaseNotes ? u.releaseNotes.split('\n')[0] : 'A new version of POS Hardware Bridge is ready to install.';
+      actionBtn.hidden = false;
+      actionBtn.disabled = false;
+      actionBtn.textContent = 'Update Now';
+      actionBtn.onclick = () => void api.startDownloadUpdate();
+      dismissBtn.hidden = false;
+      dismissBtn.onclick = () => {
+        bannerDismissed = true;
+        banner.hidden = true;
+      };
+      progressWrap.hidden = true;
+    }
+  } else if (u.state === 'downloading') {
+    bannerDismissed = false;
+    banner.hidden = false;
+    statusDetail.textContent = `Downloading update v${u.version} (${u.percent}%)…`;
+    btnCheckUpdates.disabled = true;
+    btnCheckUpdates.textContent = 'Checking…';
+    btnUpdateAction.hidden = false;
+    btnUpdateAction.disabled = true;
+    btnUpdateAction.textContent = `Downloading… ${u.percent}%`;
+
+    title.textContent = `Downloading update v${u.version}…`;
+    desc.textContent = `${u.percent}% downloaded. The bridge will prompt you when ready to install.`;
+    actionBtn.hidden = true;
+    dismissBtn.hidden = true;
+    progressWrap.hidden = false;
+    progressBar.style.width = `${Math.min(100, Math.max(0, u.percent))}%`;
+  } else if (u.state === 'ready') {
+    bannerDismissed = false;
+    banner.hidden = false;
+    statusDetail.textContent = `Version ${u.version} is downloaded and ready to install.`;
+    btnCheckUpdates.disabled = false;
+    btnCheckUpdates.textContent = 'Check for updates';
+    btnUpdateAction.hidden = false;
+    btnUpdateAction.disabled = false;
+    btnUpdateAction.textContent = 'Restart & Install';
+    btnUpdateAction.onclick = () => void api.installUpdateNow();
+
+    title.textContent = `Update v${u.version} downloaded!`;
+    desc.textContent = 'Restart POS Hardware Bridge now to finish installing.';
+    actionBtn.hidden = false;
+    actionBtn.disabled = false;
+    actionBtn.textContent = 'Restart & Install';
+    actionBtn.onclick = () => void api.installUpdateNow();
+    dismissBtn.hidden = false;
+    dismissBtn.textContent = 'Later';
+    dismissBtn.onclick = () => {
+      bannerDismissed = true;
+      banner.hidden = true;
+    };
+    progressWrap.hidden = true;
+  } else if (u.state === 'error') {
+    statusDetail.textContent = u.message || 'Could not check for updates.';
+    btnCheckUpdates.disabled = false;
+    btnCheckUpdates.textContent = 'Check for updates';
+    btnUpdateAction.hidden = true;
+  } else {
+    statusDetail.textContent = 'POS Hardware Bridge is up to date.';
+    btnCheckUpdates.disabled = false;
+    btnCheckUpdates.textContent = 'Check for updates';
+    btnUpdateAction.hidden = true;
+    banner.hidden = true;
+  }
+}
+
+$('btnCheckUpdates').addEventListener('click', async (e) => {
+  bannerDismissed = false;
+  await busy(e.target, 'Checking…', async () => {
+    const res = await api.checkForUpdates();
+    if (res && res.ok && res.value) {
+      renderUpdateState(res.value);
+    } else {
+      const state = await api.getUpdateState();
+      renderUpdateState(state);
+    }
+  });
+});
+
+api.onUpdateState(renderUpdateState);
+
 // ---------- start ----------
 
 (async () => {
@@ -799,4 +924,9 @@ $('openDocs').addEventListener('click', () => api.openDocs());
   renderLan(lanState);
   pickInitialWay(cloud, lanState);
   if (config.terminal.enabled) await loadPorts();
+
+  const appVer = await api.getAppVersion?.();
+  if (appVer) $('appVersionBadge').textContent = `v${appVer}`;
+  const initialUpdate = await api.getUpdateState?.();
+  if (initialUpdate) renderUpdateState(initialUpdate);
 })();

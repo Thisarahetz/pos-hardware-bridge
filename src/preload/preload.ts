@@ -4,6 +4,7 @@ import type { ConfigPatch } from '../main/config-store';
 import type { DiscoveredPrinter } from '../main/printer/discovery';
 import type { CloudState } from '../main/cloud/cloud-client';
 import type { LanState, PairingCode } from '../main/lan/devices';
+import type { UpdateState } from '../main/updater';
 
 type Result<T = unknown> = { ok: true; value?: T } | { ok: false; error: string };
 
@@ -62,4 +63,14 @@ contextBridge.exposeInMainWorld('bridge', {
   cancelPairing: (): Promise<Result> => ipcRenderer.invoke('lan:cancel-pairing'),
   removeDevice: (id: string): Promise<Result> => ipcRenderer.invoke('lan:remove-device', id),
   renameDevice: (id: string, name: string): Promise<Result> => ipcRenderer.invoke('lan:rename-device', id, name),
+
+  getUpdateState: (): Promise<UpdateState> => ipcRenderer.invoke('updater:get-state'),
+  checkForUpdates: (): Promise<Result<UpdateState>> => ipcRenderer.invoke('updater:check'),
+  startDownloadUpdate: (): Promise<Result> => ipcRenderer.invoke('updater:download'),
+  installUpdateNow: (): Promise<Result> => ipcRenderer.invoke('updater:install'),
+  simulateUpdate: (version?: string): Promise<Result> => ipcRenderer.invoke('updater:simulate', version),
+  getAppVersion: (): Promise<string> => ipcRenderer.invoke('app:get-version'),
+  onUpdateState: (listener: (state: UpdateState) => void): void => {
+    ipcRenderer.on('updater:state', (_evt: IpcRendererEvent, s: UpdateState) => listener(s));
+  },
 });

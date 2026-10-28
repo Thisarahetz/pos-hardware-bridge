@@ -5,7 +5,16 @@ import { startServer, stopServer } from './server';
 import { getConfig, updateConfig } from './config-store';
 import { applyLaunchAtLogin, startedAtLogin } from './autostart';
 import { log } from './logger';
-import { checkForUpdates, getUpdateState, installUpdateNow, startAutoUpdates, updateEvents } from './updater';
+import {
+  checkForUpdates,
+  getUpdateState,
+  installUpdateNow,
+  promptUpdateAvailable,
+  setBeforeInstallHandler,
+  setUpdaterWindowProvider,
+  startAutoUpdates,
+  updateEvents,
+} from './updater';
 import { cloudEvents, getCloudState, kickCloud, startCloud, type CloudState } from './cloud/cloud-client';
 import { printTestPage } from './printer/printer.service';
 import { refreshStatus, startStatusMonitor, statusEvents, stopStatusMonitor } from './status-monitor';
@@ -201,13 +210,18 @@ function rebuildTray(status: BridgeStatus | null = lastStatus): void {
 function updateMenuItem(): Electron.MenuItemConstructorOptions {
   const u = getUpdateState();
   const version = `v${app.getVersion()}`;
-  if (u.state === 'ready') return { label: `Restart to update to v${u.version}`, click: installUpdateNow };
+  if (u.state === 'ready') return { label: `Restart to install update v${u.version}`, click: installUpdateNow };
   if (u.state === 'downloading') return { label: `Downloading update v${u.version}… ${u.percent}%`, enabled: false };
+  if (u.state === 'available') {
+    return {
+      label: `Update available: v${u.version} (Click to update)`,
+      click: () => void promptUpdateAvailable(u.version, u.releaseNotes),
+    };
+  }
   if (u.state === 'checking') return { label: `${version} · checking for updates…`, enabled: false };
   return {
     label: `${version} · ${u.state === 'up-to-date' ? 'up to date' : 'check for updates'}`,
-    enabled: app.isPackaged,
-    click: () => void checkForUpdates(),
+    click: () => void checkForUpdates(true),
   };
 }
 
@@ -299,10 +313,19 @@ if (!app.requestSingleInstanceLock()) {
     watchStatus();
     startStatusMonitor();
     startCloud();
+    setUpdaterWindowProvider(() => settingsWindow);
+    setBeforeInstallHandler(() => {
+      isQuitting = true;
+    });
     startAutoUpdates();
     updateEvents.on('state', (u) => {
       rebuildTray();
-      if (u.state === 'ready') notify('Update ready', `Version ${u.version} installs the next time the bridge restarts.`);
+      sendToWindow('updater:state', u);
+      if (u.state === 'available') {
+        notify('Update available', `Version ${u.version} of POS Hardware Bridge is available.`);
+      } else if (u.state === 'ready') {
+        notify('Update ready', `Version ${u.version} has been downloaded and is ready to install.`);
+      }
     });
 
     app.on('activate', showSettingsWindow);
