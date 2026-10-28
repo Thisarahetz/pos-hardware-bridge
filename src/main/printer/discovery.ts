@@ -20,8 +20,16 @@ export interface DiscoveredPrinter {
   likelyReceiptPrinter: boolean;
 }
 
+const DOCUMENT_HINTS =
+  /\b(?:l\d{3,4}|ecotank|inktank|stylus|workforce|expression|laserjet|deskjet|officejet|pixma|smart\s*tank|brother\s*(?:mfc|dcp))\b/i;
+
 const RECEIPT_HINTS =
-  /pos|receipt|thermal|portable|tm-|tsp\d|xprinter|rongta|bixolon|citizen|sewoo|hprt|gprinter|zjiang|munbyn|epson|star micronics|58mm|80mm|generic \/ text/i;
+  /pos|receipt|thermal|portable|tm-|tsp\d|xprinter|rongta|bixolon|citizen|sewoo|hprt|gprinter|zjiang|munbyn|epson\s*(?:tm|ba|eu|m\d|t\d)|star micronics|58mm|80mm|generic \/ text/i;
+
+export function isLikelyReceiptPrinter(text: string): boolean {
+  if (DOCUMENT_HINTS.test(text)) return false;
+  return RECEIPT_HINTS.test(text);
+}
 
 export function probeTcp(host: string, port: number, timeoutMs = 1500): Promise<boolean> {
   return new Promise((resolve) => {
@@ -46,9 +54,16 @@ export async function discoverPrinters(): Promise<DiscoveredPrinter[]> {
   const result: DiscoveredPrinter[] = [];
 
   for (const q of queues) {
-    let online = true;
-    if (q.connection === 'usb') online = connectedUsb.has(q.usbDeviceId ?? '');
-    else if (q.connection === 'network' && q.host) online = await probeTcp(q.host, q.port ?? 9100, 800);
+    let online = q.enabled;
+    if (q.connection === 'usb') {
+      if (connectedUsb.size > 0 && q.usbDeviceId) {
+        online = q.enabled && connectedUsb.has(q.usbDeviceId);
+      } else {
+        online = q.enabled;
+      }
+    } else if (q.connection === 'network' && q.host) {
+      online = q.enabled && (await probeTcp(q.host, q.port ?? 9100, 800));
+    }
     result.push({
       id: `queue:${q.name}`,
       kind: q.connection === 'other' ? 'system' : q.connection,
@@ -59,7 +74,7 @@ export async function discoverPrinters(): Promise<DiscoveredPrinter[]> {
       port: q.port,
       installed: true,
       online,
-      likelyReceiptPrinter: RECEIPT_HINTS.test(`${q.name} ${q.label} ${q.usbDeviceId ?? ''}`),
+      likelyReceiptPrinter: isLikelyReceiptPrinter(`${q.name} ${q.label} ${q.usbDeviceId ?? ''}`),
     });
   }
 
@@ -72,7 +87,7 @@ export async function discoverPrinters(): Promise<DiscoveredPrinter[]> {
       usbDeviceId: d.id,
       installed: false,
       online: true,
-      likelyReceiptPrinter: RECEIPT_HINTS.test(`${d.label} ${d.id}`),
+      likelyReceiptPrinter: isLikelyReceiptPrinter(`${d.label} ${d.id}`),
     });
   }
 

@@ -68,7 +68,7 @@ async function withPage<T>(html: string, use: (win: BrowserWindow) => Promise<T>
  * Scripts are disabled; the page is laid out exactly as Chromium prints it. */
 export async function printHtml(profile: PrinterProfile, html: string, options: DocumentOptions): Promise<void> {
   const queueName = systemQueue(profile);
-  await ensureQueueReady(queueName);
+  await ensureQueueReady(queueName, 'document');
   const pageSize = options.paperSize ?? profile.paperSize;
   const landscape = options.landscape ?? false;
 
@@ -121,7 +121,7 @@ const MAX_ROLL_MM = 3000;
  */
 export async function printHtmlOnRoll(profile: PrinterProfile, html: string, options: RollOptions): Promise<void> {
   const queueName = systemQueue(profile);
-  await ensureQueueReady(queueName);
+  await ensureQueueReady(queueName, 'document');
   const { paperMm } = options;
   // An 80mm design on 58mm paper: scale it down to the paper's width.
   const zoom = paperMm / options.designMm;
@@ -189,7 +189,7 @@ export async function printPdf(profile: PrinterProfile, pdf: Buffer, options: Do
   if (pdf.subarray(0, 5).toString('latin1') !== '%PDF-') {
     throw new Error('The file sent in "pdfBase64" is not a PDF.');
   }
-  await ensureQueueReady(queueName);
+  await ensureQueueReady(queueName, 'document');
   await sendPdfToCups(queueName, pdf, { ...options, paperSize: options.paperSize ?? profile.paperSize });
 }
 

@@ -153,7 +153,7 @@ export function resolvePrinter(kind: PrinterKind, id?: string): PrinterProfile {
     }
     return found;
   }
-  const fallback = printers.find((p) => p.kind === kind);
+  const fallback = printers.find((p) => p.kind === kind) ?? printers[0];
   if (!fallback) {
     throw new UnknownPrinterError(
       kind === 'receipt'

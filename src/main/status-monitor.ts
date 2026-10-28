@@ -68,7 +68,27 @@ async function printerStatus(profile: PrinterProfile, devices: DeviceSnapshot): 
     };
   }
 
-  if (queue.connection === 'usb' && !usb.some((d) => d.id === queue.usbDeviceId)) {
+  if (!queue.enabled) {
+    return {
+      level: 'warning',
+      title: 'Printing is paused or offline',
+      detail: 'The computer paused this printer or marked it offline in Windows.',
+      steps: [
+        'Click “Resume printing” below to take it online.',
+        'In Windows Settings > Printers, right-click the printer and ensure “Use Printer Offline” is unchecked.',
+        'Make sure the printer is turned on, has paper, and has no error light blinking.',
+      ],
+      action: 'resume-queue',
+    };
+  }
+
+  if (
+    profile.kind === 'receipt' &&
+    queue.connection === 'usb' &&
+    usb.length > 0 &&
+    queue.usbDeviceId &&
+    !usb.some((d) => d.id === queue.usbDeviceId)
+  ) {
     return {
       level: 'error',
       title: 'Printer disconnected',
@@ -76,18 +96,8 @@ async function printerStatus(profile: PrinterProfile, devices: DeviceSnapshot): 
       steps: [
         'Check the USB cable at both ends.',
         'Turn the printer on and wait for the light to stop blinking.',
-        profile.kind === 'receipt' ? 'Close the paper cover and make sure it has paper.' : 'Make sure it has paper and no error light.',
+        'Close the paper cover and make sure it has paper.',
       ],
-    };
-  }
-
-  if (!queue.enabled) {
-    return {
-      level: 'warning',
-      title: 'Printing is paused',
-      detail: 'The computer paused this printer, usually after an error.',
-      steps: ['Click “Resume printing”.'],
-      action: 'resume-queue',
     };
   }
 

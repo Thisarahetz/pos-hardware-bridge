@@ -95,20 +95,43 @@ function Get-State {
     $tcp[$p.Name] = @{ host = $p.HostAddress; port = [int]$p.PortNumber }
   }
   $queues = @()
+  $activeUsbPrinters = @{}
   foreach ($p in @(Get-CimInstance Win32_Printer -ErrorAction SilentlyContinue)) {
     $t = $tcp[$p.PortName]
+    $isOffline = [bool]$p.WorkOffline -or ([int]$p.ExtendedPrinterStatus -eq 7) -or (([int]$p.PrinterState -band 128) -ne 0)
+    $isPaused = ((([int]$p.PrinterState) -band 1) -ne 0) -or ([int]$p.ExtendedPrinterStatus -eq 8)
+    if (-not $isOffline -and -not $isPaused -and $p.PortName -match '^(USB\d+|ESDPRT|EPUSB)') {
+      $activeUsbPrinters[$p.PortName] = $p.Name
+    }
     $queues += [pscustomobject]@{
       name = $p.Name
       port = $p.PortName
       driver = $p.DriverName
-      offline = [bool]$p.WorkOffline
-      paused = ((([int]$p.PrinterState) -band 1) -ne 0) -or ([int]$p.ExtendedPrinterStatus -eq 8)
+      offline = $isOffline
+      paused = $isPaused
       jobs = [int]$jobs[$p.Name]
       host = $(if ($t) { $t.host } else { $null })
       tcpPort = $(if ($t) { $t.port } else { $null })
     }
   }
-  return @{ queues = $queues; usb = (Get-UsbPorts) }
+
+  $usb = @(Get-UsbPorts)
+  foreach ($port in $activeUsbPrinters.Keys) {
+    $found = $false
+    foreach ($u in $usb) {
+      if ($u.port -eq $port) {
+        $u.connected = $true
+        if (-not $u.label) { $u.label = $activeUsbPrinters[$port] }
+        $found = $true
+        break
+      }
+    }
+    if (-not $found) {
+      $usb += [pscustomobject]@{ port = $port; label = $activeUsbPrinters[$port]; connected = $true }
+    }
+  }
+
+  return @{ queues = $queues; usb = $usb }
 }
 
 function Find-Printer($name) {
@@ -118,8 +141,15 @@ function Find-Printer($name) {
 function Resume-Queue($name) {
   $p = Find-Printer $name
   if ($null -eq $p) { throw "Printer '$name' not found" }
-  if ($p.WorkOffline) { Set-CimInstance -InputObject $p -Property @{ WorkOffline = $false } }
-  Invoke-CimMethod -InputObject $p -MethodName Resume | Out-Null
+  try {
+    Set-Printer -Name $name -WorkOffline $false -ErrorAction SilentlyContinue
+  } catch {}
+  try {
+    if ($p.WorkOffline) { Set-CimInstance -InputObject $p -Property @{ WorkOffline = $false } -ErrorAction SilentlyContinue }
+  } catch {}
+  try {
+    Invoke-CimMethod -InputObject $p -MethodName Resume -ErrorAction SilentlyContinue | Out-Null
+  } catch {}
 }
 
 function Clear-Queue($name) {

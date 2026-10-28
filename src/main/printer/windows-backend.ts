@@ -136,7 +136,7 @@ async function listQueues(): Promise<PrintQueue[]> {
   return queues
     .filter((q) => !VIRTUAL.test(`${q.port} ${q.name} ${q.driver}`))
     .map((q) => {
-      const isUsb = /^USB\d+$/i.test(q.port);
+      const isUsb = /^USB\d+$/i.test(q.port) || /^ESDPRT/i.test(q.port) || /^EPUSB/i.test(q.port);
       return {
         name: q.name,
         label: (isUsb && usbLabels.get(q.port)) || q.name,
